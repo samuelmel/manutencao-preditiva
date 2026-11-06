@@ -1,9 +1,10 @@
 .PHONY: install data test lint
 install:
-	pip install --no-cache-dir -e ".[dev]"
+	uv venv --python 3.12 .venv
+	uv pip install --python .venv -e ".[dev,train]"
 data:
-	python -m mp.pipeline
+	uv run python -m mp.pipeline
 test:
-	pytest -q
+	uv run pytest -q
 lint:
-	ruff check src tests
+	uv run ruff check src tests

@@ -16,7 +16,7 @@ Plano completo de engenharia: arquitetura medalhão (bronze/silver/gold), API Fa
 
 1. Baixe o C-MAPSS (NASA Prognostics Data Repository) e coloque `train_FD00x.txt`, `test_FD00x.txt`
    e `RUL_FD00x.txt` em `data/raw_download/`.
-2. `make install && make data && make test`
+2. `make install && make data && make test` (usa [uv](https://docs.astral.sh/uv/); sem pip)
 
 `data/` não é versionado. Bronze é imutável: o pipeline copia os arquivos byte a byte, grava
 checksums em `MANIFEST.json` e falha se um original mudar.

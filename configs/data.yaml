@@ -8,6 +8,6 @@ subsets: [FD001, FD002, FD003, FD004]
 rul_cap: 125
 window: 30
 val_fraction: 0.2
-variance_threshold: 1.0e-6
+variance_threshold: 1.0e-4   # s6 (FD001) tem var ~2e-6: quase constante
 n_clusters: 6          # só para FD002/FD004 (múltiplas condições operacionais)
 multi_condition: [FD002, FD004]
