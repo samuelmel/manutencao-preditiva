@@ -6,9 +6,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import numpy as np
+
+os.environ.setdefault("KERAS_BACKEND", "torch")  # antes de importar keras
 
 from mp.config import ROOT, load_config
 from mp.models.baselines import MeanBaseline, RFBaseline
@@ -40,12 +43,12 @@ def main() -> None:
     import keras
     import torch
 
-    from mp.models.lstm import build_lstm
+    from mp.models.lstm import RUL_CAP, build_lstm
 
     keras.utils.set_random_seed(seed)
     model = build_lstm(xtr.shape[1], xtr.shape[2])
     model.fit(
-        xtr, ytr, validation_data=(xva, yva), epochs=a.epochs, batch_size=256, verbose=2,
+        xtr, ytr / RUL_CAP, validation_data=(xva, yva / RUL_CAP), epochs=a.epochs, batch_size=256, verbose=2,
         callbacks=[keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)],
     )
     pred = np.clip(model.predict(xte, verbose=0).ravel(), 0, None)  # RUL negativo -> 0
