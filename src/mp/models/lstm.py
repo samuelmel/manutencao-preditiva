@@ -20,9 +20,13 @@ def build_lstm(window: int, n_features: int) -> keras.Model:
             layers.LSTM(32),
             layers.Dropout(0.2),
             layers.Dense(16, activation="relu"),
-            layers.Dense(1),
-            layers.Rescaling(RUL_CAP),  # treina em [0,1]; saída em ciclos
+            layers.Dense(1),  # saída em [0,1] (RUL / RUL_CAP); alvo do treino escalado igual
         ]
     )
     m.compile(optimizer=keras.optimizers.Adam(1e-3), loss="mse")
     return m
+
+
+def with_cycles_output(core: keras.Model) -> keras.Model:
+    """Embrulha o modelo treinado para devolver ciclos (usado na inferência e no ONNX)."""
+    return keras.Sequential([core, layers.Rescaling(RUL_CAP)])

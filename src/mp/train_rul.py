@@ -43,7 +43,7 @@ def main() -> None:
     import keras
     import torch
 
-    from mp.models.lstm import RUL_CAP, build_lstm
+    from mp.models.lstm import RUL_CAP, build_lstm, with_cycles_output
 
     keras.utils.set_random_seed(seed)
     model = build_lstm(xtr.shape[1], xtr.shape[2])
@@ -51,13 +51,14 @@ def main() -> None:
         xtr, ytr / RUL_CAP, validation_data=(xva, yva / RUL_CAP), epochs=a.epochs, batch_size=256, verbose=2,
         callbacks=[keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)],
     )
+    model = with_cycles_output(model)  # treino em [0,1]; daqui em diante a saída é em ciclos
     pred = np.clip(model.predict(xte, verbose=0).ravel(), 0, None)  # RUL negativo -> 0
     report("lstm", pred)
 
     # ONNX via PyTorch: embrulha o modelo Keras (backend torch) como nn.Module.
     model.save(out / "lstm.keras")
     torch.onnx.export(
-        model, (torch.zeros(1, xtr.shape[1], xtr.shape[2]),), str(out / "lstm.onnx"),
+        model,(torch.zeros(1, xtr.shape[1], xtr.shape[2]),), str(out / "lstm.onnx"),
         input_names=["janela"], output_names=["rul"],
         dynamic_axes={"janela": {0: "batch"}, "rul": {0: "batch"}}, dynamo=False,
     )
