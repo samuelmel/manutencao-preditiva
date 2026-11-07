@@ -10,7 +10,7 @@ Plano completo de engenharia: arquitetura medalhão (bronze/silver/gold), API Fa
 | 0: repo, CI, bronze → silver → gold do C-MAPSS | feito (testado com dados sintéticos) |
 | 1: baselines + LSTM (FD001) + ONNX | feito; LSTM não superou o Random Forest (ver Resultados da Fase 1) |
 | 2: OS sintéticas + spaCy + TF-IDF/Word2Vec/LDA | feito (ver Resultados da Fase 2) |
-| 3: fusão, drift, API, Docker/Prometheus/Grafana | feito e verificado no Podman; DistilBERT pendente (ver Fase 3) |
+| 3: fusão, drift, API, Docker/Prometheus/Grafana | feito e verificado no Podman; DistilBERT: código testado, treino no Colab pendente (ver Fase 3) |
 
 ## Uso
 
@@ -155,4 +155,21 @@ Fluxo: `make data` → `make train-rul` → `make text` → `make serving` (gera
 ### Ainda não feito
 - Gatilho de queda de 10 pontos no F1-macro numa amostra rotulada: a API não recebe rótulos; hoje só existe o proxy de
   PSI das classes de OS.
-- DistilBERT multilíngue (fine-tuning, INT8, recall da crítica ≥ 0,85) e o teste de paridade ONNX × modelo do classificador.
+- Treino real do DistilBERT (ver abaixo) e, com ele, a meta de recall da crítica ≥ 0,85.
+
+### DistilBERT multilíngue (treino no Colab)
+Código pronto e testado; o **treino real ainda não rodou**. Como o PyTorch local é só CPU, o treino é no Colab (GPU T4, fp16):
+1. `make colab` gera `artifacts/colab/mp-colab.zip` (código + corpus de OS, 1,2 MB, sem precisar de push) e o
+   notebook `notebooks/treinar_distilbert.ipynb`, que só chama `python -m mp.train_bert`.
+2. No Colab: envia o zip, treina (mesma divisão por motor e mesma seed do baseline), exporta ONNX INT8 e devolve
+   `bert_int8.onnx`, `tokenizer.json` e `metrics.json`. O melhor checkpoint vai para o seu Drive a cada época.
+3. Coloque os 3 arquivos em `artifacts/bert/`, rode `make serving` e reinicie a API: com `bert_int8.onnx` e
+   `tokenizer.json` em `artifacts/serving`, o serviço usa o DistilBERT (ONNX Runtime + `tokenizers`, sem PyTorch na imagem).
+   O TF-IDF continua como baseline e como detector de texto em outro idioma.
+
+Verificado sem baixar o modelo (`tests/test_bert_pipeline.py`, DistilBERT minúsculo de pesos aleatórios): o laço de treino
+memoriza um lote pequeno (acusaria rótulos desalinhados), o ONNX fp32 bate com o PyTorch (< 1e-4), o ONNX aceita lotes e
+comprimentos variados, o INT8 é menor, e o serviço lê o que o treino exporta com os mesmos ids de token que o `transformers`.
+**Não verificado:** a qualidade do modelo real (F1-macro e recall da crítica) e a latência `/triagem` com o DistilBERT.
+Com 10% de rótulos trocados de propósito, o teto de recall medido no rótulo ruidoso fica perto de 0,9; os números saem
+nos dois rótulos (ruidoso e de referência) em `metrics.json`.

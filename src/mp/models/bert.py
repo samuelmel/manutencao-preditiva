@@ -35,12 +35,13 @@ def prever_proba(modelo, tok, textos: list[str], max_len: int = 64, batch: int =
     import torch
 
     modelo.eval()
+    dev = next(modelo.parameters()).device
     out = []
     with torch.no_grad():
         for ix in _lotes(len(textos), batch):
             enc = tok([textos[i] for i in ix], truncation=True, padding=True, max_length=max_len,
-                      return_tensors="pt")
-            out.append(torch.softmax(modelo(**enc).logits, dim=-1).numpy())
+                      return_tensors="pt").to(dev)
+            out.append(torch.softmax(modelo(**enc).logits.float(), dim=-1).cpu().numpy())
     return np.vstack(out)
 
 
@@ -61,6 +62,11 @@ def treinar(textos_tr: list[str], y_tr: list[int], textos_va: list[str], y_va: l
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     modelo, tok = carregar_modelo()
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    modelo.to(dev)
+    amp = dev.type == "cuda"  # fp16 só na GPU; na CPU o treino é em fp32
+    scaler = torch.amp.GradScaler(enabled=amp)
+    log(f"dispositivo: {dev} | fp16: {amp}")
     otim = torch.optim.AdamW(modelo.parameters(), lr=lr, weight_decay=0.01)
     passos = epocas * ((len(textos_tr) + batch - 1) // batch)
     sched = get_linear_schedule_with_warmup(otim, int(0.1 * passos), passos)
@@ -71,11 +77,14 @@ def treinar(textos_tr: list[str], y_tr: list[int], textos_va: list[str], y_va: l
         perda_total = 0.0
         for k, ix in enumerate(_lotes(len(textos_tr), batch, rng), 1):
             enc = tok([textos_tr[i] for i in ix], truncation=True, padding=True,
-                      max_length=max_len, return_tensors="pt")
-            perda = modelo(**enc, labels=y_tr_t[ix]).loss
-            perda.backward()
+                      max_length=max_len, return_tensors="pt").to(dev)
+            with torch.autocast(device_type=dev.type, dtype=torch.float16, enabled=amp):
+                perda = modelo(**enc, labels=y_tr_t[ix].to(dev)).loss
+            scaler.scale(perda).backward()
+            scaler.unscale_(otim)
             torch.nn.utils.clip_grad_norm_(modelo.parameters(), 1.0)
-            otim.step()
+            scaler.step(otim)
+            scaler.update()
             sched.step()
             otim.zero_grad()
             perda_total += float(perda)
@@ -99,7 +108,7 @@ def exportar_onnx(modelo, tok, destino: Path, max_len: int = 64) -> None:
     """ONNX fp32 com batch e comprimento dinâmicos; entradas `input_ids` e `attention_mask`."""
     import torch
 
-    modelo.eval()
+    modelo = modelo.to("cpu").eval()  # a exportação é feita em CPU, mesmo que o treino tenha sido na GPU
     enc = tok(["falha total em compressor", "leve ruído"], padding=True, truncation=True,
               max_length=max_len, return_tensors="pt")
 
