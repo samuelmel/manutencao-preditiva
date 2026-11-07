@@ -1,0 +1,8 @@
+# Fusão RUL + gravidade da OS. Regra de negócio, não modelo treinado:
+# prioridade = w_rul * (1 - min(RUL, rul_cap) / rul_cap) + w_os * P(gravidade em {alta, crítica})
+w_rul: 0.6
+w_os: 0.4
+rul_cap: 125
+rul_critico: 15      # abaixo disso o motor entra em alerta crítico
+psi_limiar: 0.2      # gatilho de drift: PSI acima disso em mais de `psi_min_sensores` sensores
+psi_min_sensores: 3

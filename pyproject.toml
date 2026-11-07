@@ -6,7 +6,8 @@ requires-python = ">=3.11"
 dependencies = ["numpy", "pandas", "pyarrow", "scikit-learn", "pyyaml"]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "httpx"]
+serve = ["fastapi>=0.110", "uvicorn>=0.29", "onnxruntime", "prometheus-client", "joblib"]
 train = ["keras>=3", "torch", "onnx", "onnxscript", "onnxruntime"]
 nlp = [
     "spacy>=3.7",

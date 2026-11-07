@@ -1,8 +1,10 @@
+import os
 from pathlib import Path
 
 import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
+# MP_ROOT permite apontar para a raiz (com configs/) quando o pacote roda instalado, como no Docker.
+ROOT = Path(os.environ.get("MP_ROOT") or Path(__file__).resolve().parents[2])
 
 
 def load_config(name: str = "data") -> dict:
