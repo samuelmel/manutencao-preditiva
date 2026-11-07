@@ -11,7 +11,7 @@ services:
       - "127.0.0.1:8000:8000"
 
   prometheus:
-    image: prom/prometheus:v2.55.1
+    image: docker.io/prom/prometheus:v2.55.1
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.size=200MB
@@ -24,7 +24,7 @@ services:
       - api
 
   grafana:
-    image: grafana/grafana:11.3.0
+    image: docker.io/grafana/grafana:11.3.0
     environment:
       GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
