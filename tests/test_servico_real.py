@@ -80,3 +80,14 @@ def test_latencia_triagem_p95_abaixo_de_300ms(client):
         client.post("/triagem", json=corpo)
         t.append(time.perf_counter() - t0)
     assert np.percentile(t, 95) < 0.3, np.percentile(t, 95)
+
+
+@pytest.mark.skipif(not (SERVING / "bert_int8.onnx").exists(), reason="DistilBERT não exportado")
+def test_triagem_com_distilbert_real_separa_critica_de_baixa(client):
+    critica = client.post("/triagem", json={
+        "texto": "Motor 5: falha total em compressor de alta (HPC-0412), fumaça visível."}).json()
+    baixa = client.post("/triagem", json={
+        "texto": "leve ruído no rolamento BRG-0007, inspeção de rotina sem anomalia"}).json()
+    assert critica["gravidade"] in {"alta", "crítica"} and critica["p_grave"] > 0.5
+    assert baixa["gravidade"] in {"baixa", "média"} and baixa["p_grave"] < 0.5
+    assert critica["entidades"]["codigo"] == "HPC-0412"
