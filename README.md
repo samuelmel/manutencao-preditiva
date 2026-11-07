@@ -9,7 +9,7 @@ Plano completo de engenharia: arquitetura medalhão (bronze/silver/gold), API Fa
 |---|---|
 | 0: repo, CI, bronze → silver → gold do C-MAPSS | feito (testado com dados sintéticos) |
 | 1: baselines + LSTM (FD001) + ONNX | feito; LSTM não superou o Random Forest (ver Resultados da Fase 1) |
-| 2: OS sintéticas + spaCy + TF-IDF/Word2Vec/LDA | pendente |
+| 2: OS sintéticas + spaCy + TF-IDF/Word2Vec/LDA | feito, com `blank("pt")` no spaCy (ver Resultados da Fase 2) |
 | 3: DistilBERT, fusão, API, Grafana, drift | pendente |
 
 ## Uso
@@ -64,3 +64,40 @@ Explicação provável: FD001 tem poucos dados, sinais limpos e degradação qua
 com boas estatísticas feitas à mão. O teste tem só 100 motores, então diferenças abaixo de ~1 ciclo não são conclusivas.
 A comparação deve ser refeita em FD002/FD004 (várias condições de operação), onde sequências costumam ajudar mais.
 Os experimentos foram feitos com scripts avulsos; a receita final ainda não está em `train_rul.py`.
+
+## Resultados da Fase 2 (triagem de OS)
+
+**Os textos são sintéticos.** Não existe dataset público de OS em português, então `mp.textgen` gera as OS por
+templates (sem LLM), a partir do RUL real do C-MAPSS: 4 ciclos por faixa de gravidade por motor, nos 4 subconjuntos
+(11.344 OS, classes balanceadas). A gravidade de referência vem do RUL (<15 crítica, <40 alta, <80 média, resto baixa).
+Para não ficar fácil demais: 30% das OS usam sintomas de uma gravidade vizinha, há abreviações ("rolam.", "temp"),
+erros de digitação, caixa alta/baixa, códigos com e sem hífen, e **10% dos rótulos são trocados de propósito**
+(`gravidade`; a referência limpa fica em `gravidade_ref`). Por isso o teto realista de acerto é bem abaixo de 100%.
+
+Pipeline: `python -m mp.textgen.build` (bronze JSONL) → `python -m mp.train_triagem` (silver: limpeza, lemas, NER;
+depois baseline, Word2Vec e LDA). Divisão treino/teste por motor, nunca por OS (`GroupShuffleSplit`).
+
+Baseline TF-IDF (1 a 3-gramas) + Regressão Logística, 20% dos motores no teste:
+
+| Entrada | F1-macro (rótulo ruidoso) | F1-macro (referência) | Recall da classe crítica (ruidoso) |
+|---|---|---|---|
+| `texto_limpo` | 0,693 | 0,771 | 0,763 |
+| `lemas` | 0,694 | 0,771 | 0,765 |
+
+- Lemas e texto limpo empatam porque o spaCy rodou com `blank("pt")` (sem `pt_core_news_sm`): não há lematização
+  real, só minúsculas e remoção de stopwords. O modelo usado fica registrado em `modelo_spacy` no parquet e em
+  `artifacts/triagem/metrics.json`.
+- Com 10% de rótulos trocados, o recall da crítica de ≥ 0,85 (meta do plano) ainda não foi atingido; é a meta do
+  classificador final da Fase 3 (DistilBERT), não do baseline. Os erros se concentram entre classes vizinhas.
+- NER (EntityRuler): código de peça 100% (inclusive `HPC0412` e `hpc-0412`, que o NER genérico não pega);
+  cobertura de componente 93% e de sintoma 91%. O que falta são erros de digitação, que não casam com o léxico.
+- Word2Vec (50 dimensões, treinado no corpus) acha OS parecidas: para "vibração forte compressor alta" volta OS com o
+  mesmo sintoma, mesmo com palavras erradas ("verfiicar", "mootr").
+- LDA: k escolhido por coerência `c_v` entre 3, 4, 5, 6 e 8 → k = 8 (0,268). A coerência é baixa e os tópicos seguem
+  as palavras dos templates ("motor", "peça", "durante ronda"), efeito esperado de texto sintético; k = 8 é a borda do
+  intervalo testado.
+
+## Ambiente
+
+`make install` usa Python 3.12. O `gensim` ainda não tem pacote pronto para Python 3.14, então crie o ambiente com 3.12:
+`uv venv --python 3.12 .venv && uv pip install --python .venv -e ".[dev,train,nlp]"`.

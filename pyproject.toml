@@ -8,6 +8,7 @@ dependencies = ["numpy", "pandas", "pyarrow", "scikit-learn", "pyyaml"]
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
 train = ["keras>=3", "torch", "onnx", "onnxscript", "onnxruntime"]
+nlp = ["spacy>=3.7", "gensim>=4.3"]
 
 [build-system]
 requires = ["setuptools>=68"]
