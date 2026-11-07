@@ -125,11 +125,12 @@ class ServicoRul:
 
 class ServicoTriagem:
     def __init__(self, modelo, ref_classes: dict[str, float] | None = None, n_base: int = 100,
-                 classificador=None):
+                 classificador=None, f1_ref: float | None = None):
         """`ref_classes` (proporção no treino) é só informativa: o treino é balanceado por
         construção, então o drift de classes usa uma linha de base de produção (as `n_base`
         primeiras OS triadas), não o treino."""
         self.modelo = modelo
+        self.f1_ref = f1_ref  # F1-macro do classificador servido no teste do treino (rotulo ruidoso)
         # `classificador` (ex.: DistilBERT) dá as probabilidades; o TF-IDF segue como baseline e
         # fornece o vocabulário para detectar texto de outro idioma. Texto bruto vai ao DistilBERT.
         self.classificador = classificador
@@ -142,7 +143,8 @@ class ServicoTriagem:
         self.recentes: deque[str] = deque(maxlen=200)
         self.oov: deque[float] = deque(maxlen=200)
 
-    def triar(self, texto: str) -> dict:
+    def triar(self, texto: str, registrar: bool = True) -> dict:
+        """`registrar=False` nao mexe nas janelas de drift (usado ao avaliar uma amostra rotulada)."""
         limpo = limpar(texto or "")
         tokens = re.findall(r"[^\W\d_]+", re.sub(r"\b[a-z]{3}-?\d{4}\b", " ", limpo))
         entidades = extrair(limpo)
@@ -151,7 +153,8 @@ class ServicoTriagem:
             return {**base, "gravidade": "indefinida", "motivo": "sem texto descritivo",
                     "p_grave": None, "probabilidades": {}}
         oov = drift.taxa_oov([limpo], self.vocab)
-        self.oov.append(oov)
+        if registrar:
+            self.oov.append(oov)
         if oov > LIMIAR_OOV:
             return {**base, "gravidade": "indefinida", "motivo": "vocabulário desconhecido",
                     "p_grave": None, "probabilidades": {}}
@@ -161,12 +164,13 @@ class ServicoTriagem:
             proba = self.modelo.predict_proba([limpo])[0]
         probs = {c: float(p) for c, p in zip(self.classes, proba, strict=True)}
         grav = max(probs, key=probs.get)
-        self.recentes.append(grav)
-        self.total += 1
-        if self.baseline is None:
-            self.primeiros.append(grav)
-            if len(self.primeiros) >= self.n_base:
-                self.baseline = self._dist(self.primeiros)
+        if registrar:
+            self.recentes.append(grav)
+            self.total += 1
+            if self.baseline is None:
+                self.primeiros.append(grav)
+                if len(self.primeiros) >= self.n_base:
+                    self.baseline = self._dist(self.primeiros)
         return {**base, "gravidade": grav, "motivo": None, "probabilidades": probs,
                 "p_grave": probs.get("alta", 0.0) + probs.get("crítica", 0.0)}
 
@@ -174,6 +178,33 @@ class ServicoTriagem:
     def _dist(rotulos) -> dict[str, float]:
         cont = Counter(rotulos)
         return {g: cont.get(g, 0) / len(rotulos) for g in GRAVIDADES}
+
+    def avaliar_f1(self, amostra: list[tuple[str, str]], queda_limite_pts: float = 10.0,
+                   minimo: int = 30) -> dict:
+        """Gatilho de retreino: F1-macro numa amostra rotulada contra o F1 de referencia do modelo.
+
+        OS que o servico manda para revisao humana (`indefinida`) nao entram no F1. Com menos de
+        `minimo` OS avaliadas o resultado e so informativo e o gatilho nao dispara.
+        """
+        from sklearn.metrics import f1_score
+
+        if self.f1_ref is None:
+            raise ValueError("sem F1 de referencia: rode `python -m mp.exportar_servico`")
+        reais, previstas, indefinidas = [], [], 0
+        for texto, real in amostra:
+            r = self.triar(texto, registrar=False)
+            if r["gravidade"] == "indefinida":
+                indefinidas += 1
+                continue
+            reais.append(real)
+            previstas.append(r["gravidade"])
+        f1 = float(f1_score(reais, previstas, average="macro", zero_division=0)) if reais else 0.0
+        queda = (self.f1_ref - f1) * 100.0
+        pequena = len(reais) < minimo
+        return {"n_amostra": len(amostra), "n_avaliadas": len(reais), "n_indefinidas": indefinidas,
+                "f1_macro": f1, "f1_macro_ref": self.f1_ref, "queda_pontos": queda,
+                "limite_pontos": queda_limite_pts, "amostra_pequena": pequena,
+                "gatilho_retreino": (not pequena) and queda >= queda_limite_pts}
 
     def drift_texto(self) -> dict:
         """PSI das classes: janela recente contra a linha de base de produção (após 1,5x n_base)."""
@@ -226,5 +257,5 @@ def carregar(pasta: Path, cfg: dict):
     if (pasta / "bert_int8.onnx").exists() and (pasta / "tokenizer.json").exists():
         clf = ClassificadorOnnx.de_pasta(pasta, GRAVIDADES, meta.get("bert_max_len", 64))
     tri = ServicoTriagem(joblib.load(pasta / "triagem_tfidf.joblib"), meta["classes_ref"],
-                         classificador=clf)
+                         classificador=clf, f1_ref=meta.get("f1_macro_ref"))
     return rul, tri

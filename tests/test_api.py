@@ -190,3 +190,83 @@ def test_drift_de_texto_zero_antes_da_baseline(triagem):
         svc.triar(t)
     assert svc.drift_texto() == {"oov_taxa": pytest.approx(svc.drift_texto()["oov_taxa"]),
                                  "psi_classes": 0.0, "baseline_pronta": False}
+
+
+def _amostra_rotulada(n, seed, embaralhar=False):
+    rng = np.random.default_rng(seed)
+    oss = [gerar_os(i % 50, i, float(rng.integers(0, 125)), rng) for i in range(n)]
+    rotulos = [o["gravidade"] for o in oss]
+    if embaralhar:  # simula o modelo envelhecido: a relacao texto -> gravidade deixou de valer
+        rotulos = list(rng.permutation(rotulos))
+    return [{"texto": o["texto"], "gravidade": g} for o, g in zip(oss, rotulos, strict=True)]
+
+
+@pytest.fixture
+def client_f1(triagem):
+    from sklearn.metrics import f1_score
+
+    ref = _amostra_rotulada(400, seed=99)
+    f1_ref = f1_score([o["gravidade"] for o in ref],
+                      triagem.modelo.predict([limpar(o["texto"]) for o in ref]), average="macro")
+    svc = ServicoTriagem(triagem.modelo, f1_ref=float(f1_ref))
+    norm = {"sensors": SENSORES, "centers": [[0.0, 0.0, 100.0]],
+            "min": [[0.0] * 5], "max": [[1.0] * 5]}
+    rul = ServicoRul(FakeRul(), norm, {s: np.random.default_rng(0).uniform(0, 1, 500) for s in SENSORES},
+                     limite_distancia=1.0, janela=30, cfg=CFG)
+    return TestClient(criar_app(rul, svc, Metricas(), {**CFG, "f1_queda_pontos": 10.0,
+                                                       "f1_amostra_min": 30})), svc
+
+
+def test_f1_amostra_boa_nao_dispara_o_gatilho(client_f1):
+    client, _ = client_f1
+    r = client.post("/triagem/avaliar", json={"itens": _amostra_rotulada(200, seed=7)}).json()
+    assert r["n_avaliadas"] == 200 and r["amostra_pequena"] is False
+    assert abs(r["queda_pontos"]) < 10
+    assert r["gatilho_retreino"] is False
+
+
+def test_f1_caindo_10_pontos_dispara_o_gatilho_e_as_metricas(client_f1):
+    client, _ = client_f1
+    r = client.post("/triagem/avaliar",
+                    json={"itens": _amostra_rotulada(200, seed=7, embaralhar=True)}).json()
+    assert r["queda_pontos"] >= 10 and r["gatilho_retreino"] is True
+    corpo = client.get("/metrics").text
+    assert "mp_f1_macro_amostra" in corpo and "mp_f1_queda_pontos" in corpo
+    assert f"mp_amostra_rotulada_n {float(r['n_avaliadas'])}" in corpo
+
+
+def test_f1_amostra_pequena_e_so_informativa(client_f1):
+    client, _ = client_f1
+    r = client.post("/triagem/avaliar",
+                    json={"itens": _amostra_rotulada(10, seed=7, embaralhar=True)}).json()
+    assert r["amostra_pequena"] is True and r["gatilho_retreino"] is False
+
+
+def test_f1_nao_conta_os_indefinidas_e_nao_mexe_no_drift_de_texto(client_f1):
+    client, svc = client_f1
+    antes = (svc.total, len(svc.recentes), len(svc.oov))
+    itens = _amostra_rotulada(60, seed=3) + [{"texto": "", "gravidade": "baixa"},
+                                             {"texto": "the engine is overheating badly", "gravidade": "alta"}]
+    r = client.post("/triagem/avaliar", json={"itens": itens}).json()
+    assert r["n_indefinidas"] == 2 and r["n_avaliadas"] == 60
+    assert (svc.total, len(svc.recentes), len(svc.oov)) == antes
+
+
+@pytest.mark.parametrize("corpo", [
+    {"itens": []},
+    {"itens": [{"texto": "vibração forte", "gravidade": "urgente"}]},
+    {"itens": [{"texto": "vibração forte"}]},
+    {},
+])
+def test_f1_entrada_invalida_devolve_422(client_f1, corpo):
+    assert client_f1[0].post("/triagem/avaliar", json=corpo).status_code == 422
+
+
+def test_f1_sem_referencia_devolve_409(triagem):
+    svc = ServicoTriagem(triagem.modelo)  # sem f1_ref
+    norm = {"sensors": SENSORES, "centers": [[0.0, 0.0, 100.0]],
+            "min": [[0.0] * 5], "max": [[1.0] * 5]}
+    rul = ServicoRul(FakeRul(), norm, {s: np.zeros(10) for s in SENSORES}, 1.0, 30, CFG)
+    c = TestClient(criar_app(rul, svc, Metricas(), CFG))
+    r = c.post("/triagem/avaliar", json={"itens": _amostra_rotulada(5, seed=1)})
+    assert r.status_code == 409

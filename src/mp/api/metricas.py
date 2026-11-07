@@ -23,6 +23,13 @@ class Metricas:
                                registry=r)
         self.texto_psi = Gauge("mp_texto_psi_classes", "PSI da distribuição de gravidade das OS",
                                registry=r)
+        self.f1_amostra = Gauge("mp_f1_macro_amostra", "F1-macro na ultima amostra rotulada",
+                                registry=r)
+        self.f1_queda = Gauge("mp_f1_queda_pontos",
+                              "Queda do F1-macro (pontos) contra o F1 de referencia do modelo",
+                              registry=r)
+        self.amostra_n = Gauge("mp_amostra_rotulada_n", "OS avaliadas na ultima amostra rotulada",
+                               registry=r)
         self.latencia = Histogram("http_request_duration_seconds", "Latência HTTP",
                                   ["handler", "method", "status"], registry=r,
                                   buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5))

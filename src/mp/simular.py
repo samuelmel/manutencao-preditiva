@@ -28,7 +28,22 @@ def main() -> None:
     ap.add_argument("--url", default="http://127.0.0.1:8000")  # 127.0.0.1: "localhost" tenta ::1 antes no Windows
     ap.add_argument("--drift", action="store_true")
     ap.add_argument("--fd", default="FD001")
+    ap.add_argument("--f1", action="store_true",
+                    help="envia uma amostra rotulada de OS e mostra o gatilho de F1-macro")
+    ap.add_argument("--f1-degradado", action="store_true",
+                    help="como --f1, mas com os rotulos embaralhados (simula o modelo envelhecido)")
     a = ap.parse_args()
+    if a.f1 or a.f1_degradado:
+        rng = np.random.default_rng(123)
+        oss = [gerar_os(i % 100, i, float(rng.integers(0, 125)), rng) for i in range(300)]
+        rotulos = [o["gravidade"] for o in oss]
+        if a.f1_degradado:
+            rotulos = list(rng.permutation(rotulos))
+        itens = [{"texto": o["texto"], "gravidade": g} for o, g in zip(oss, rotulos, strict=True)]
+        r = _post(f"{a.url}/triagem/avaliar", {"itens": itens})
+        print(f"F1-macro {r['f1_macro']:.3f} (referencia {r['f1_macro_ref']:.3f}) | queda "
+              f"{r['queda_pontos']:.1f} pontos | gatilho de retreino: {r['gatilho_retreino']}")
+        return
     df = read_raw(ROOT / "data" / "bronze" / f"test_{a.fd}.txt")
     rul_final = read_rul_file(ROOT / "data" / "bronze" / f"RUL_{a.fd}.txt")
     rng = np.random.default_rng(0)

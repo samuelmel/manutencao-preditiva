@@ -123,11 +123,24 @@ saude = painel(
              "reduceOptions": {"calcs": ["lastNotNull"], "values": False}},
 )
 
+f1 = painel(
+    9, "stat", "Classificador de OS: F1-macro na amostra rotulada", 0, 36, 12, 6, datasource=PROM,
+    targets=[prom("mp_f1_macro_amostra", "F1-macro na amostra", instant=True, ref="A"),
+             prom("mp_f1_queda_pontos", "Queda do F1 (pontos)", instant=True, ref="B")],
+    fieldConfig={"defaults": {"decimals": 2, "thresholds": cores(("green", None))},
+                 "overrides": [{"matcher": {"id": "byName", "options": "Queda do F1 (pontos)"},
+                                "properties": [{"id": "decimals", "value": 1},
+                                               {"id": "thresholds",
+                                                "value": cores(("green", None), ("red", 10))}]}]},
+    options={"colorMode": "value", "textMode": "value_and_name",
+             "reduceOptions": {"calcs": ["lastNotNull"], "values": False}},
+)
+
 dashboard = {
     "uid": "manutencao-preditiva", "title": "Manutenção preditiva 4.0", "schemaVersion": 39,
     "version": 1, "editable": False, "refresh": "15s", "time": {"from": "now-30m", "to": "now"},
     "tags": ["manutencao", "mlops"], "timezone": "browser",
-    "panels": [fila, rul, psi_linha, psi_mapa, pizza, latencia, erros, saude],
+    "panels": [fila, rul, psi_linha, psi_mapa, pizza, latencia, erros, saude, f1],
 }
 
 if __name__ == "__main__":

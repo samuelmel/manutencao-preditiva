@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -22,6 +23,15 @@ class RulIn(BaseModel):
 class TriagemIn(BaseModel):
     texto: str = Field(max_length=2000)
     unit_id: int | None = Field(default=None, ge=0)
+
+
+class OsRotulada(BaseModel):
+    texto: str = Field(max_length=2000)
+    gravidade: Literal["baixa", "média", "alta", "crítica"]
+
+
+class AmostraIn(BaseModel):
+    itens: list[OsRotulada] = Field(min_length=1, max_length=5000)
 
 
 def criar_app(rul: ServicoRul | None = None, triagem: ServicoTriagem | None = None,
@@ -80,6 +90,19 @@ def criar_app(rul: ServicoRul | None = None, triagem: ServicoTriagem | None = No
             if "prioridade" in item:
                 metricas.prioridade.labels(str(corpo.unit_id)).set(item["prioridade"])
         return t
+
+    @app.post("/triagem/avaliar")
+    def avaliar_amostra(corpo: AmostraIn):
+        """Recebe OS com a gravidade real e devolve o F1-macro contra a referencia do modelo."""
+        try:
+            r = triagem.avaliar_f1([(i.texto, i.gravidade) for i in corpo.itens],
+                                   cfg.get("f1_queda_pontos", 10.0), cfg.get("f1_amostra_min", 30))
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+        metricas.f1_amostra.set(r["f1_macro"])
+        metricas.f1_queda.set(r["queda_pontos"])
+        metricas.amostra_n.set(r["n_avaliadas"])
+        return r
 
     @app.get("/prioridade")
     def prioridade_(top: int | None = None):

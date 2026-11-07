@@ -44,7 +44,7 @@ def main() -> None:
 
     # triagem: baseline TF-IDF + LR treinado só nos motores de treino
     os_df = pd.read_parquet(ROOT / "data" / "silver_text" / "os.parquet")
-    tr, _ = dividir_por_motor(os_df, seed)
+    tr, te = dividir_por_motor(os_df, seed)
     modelo = baseline(seed).fit(tr["texto_limpo"], tr["gravidade"])
     joblib.dump(modelo, out / "triagem_tfidf.joblib", compress=3)
     prop = tr["gravidade"].value_counts(normalize=True)
@@ -54,8 +54,16 @@ def main() -> None:
         shutil.copy(bert_dir / "bert_int8.onnx", out / "bert_int8.onnx")
         shutil.copy(bert_dir / "tokenizer.json", out / "tokenizer.json")
         bert_max_len = json.loads((bert_dir / "metrics.json").read_text(encoding="utf-8"))["max_len"]
+    if usa_bert:  # F1 de referencia do classificador que o servico de fato usa (rotulo ruidoso)
+        f1_ref = json.loads((bert_dir / "metrics.json").read_text(encoding="utf-8"))[
+            "distilbert_int8"]["ruidoso"]["f1_macro"]
+    else:
+        from sklearn.metrics import f1_score
+
+        f1_ref = float(f1_score(te["gravidade"], modelo.predict(te["texto_limpo"]), average="macro"))
     meta = {
         "fd": a.fd,
+        "f1_macro_ref": float(f1_ref),
         "janela": cfg["window"],
         "limite_distancia": float(dist.max() * 1.5 + 1e-9),
         "classes_ref": {g: float(prop.get(g, 0.0)) for g in GRAVIDADES},

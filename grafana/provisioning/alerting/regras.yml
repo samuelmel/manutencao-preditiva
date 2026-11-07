@@ -89,3 +89,32 @@ groups:
           description: >-
             A proporção de OS por gravidade mudou em relação ao treino. Recomendação: avaliar o F1-macro
             numa amostra rotulada e retreinar o classificador se cair 10 pontos.
+
+      - uid: mp-f1-queda
+        title: F1-macro das OS caiu 10 pontos ou mais
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: mp_f1_queda_pontos, instant: true }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [9.99] }
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels: { severity: critical }
+        annotations:
+          summary: O classificador perdeu 10 pontos de F1-macro numa amostra rotulada
+          description: >-
+            O F1-macro medido numa amostra rotulada (POST /triagem/avaliar) ficou 10 pontos ou mais abaixo
+            do F1 de referencia do treino. Recomendacao: retreinar o classificador de gravidade com OS recentes.

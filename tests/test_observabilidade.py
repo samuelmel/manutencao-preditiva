@@ -13,12 +13,13 @@ PROV = ROOT / "grafana" / "provisioning"
 METRICAS_API = {
     "mp_rul_ciclos", "mp_prioridade", "mp_psi", "mp_sensores_drift", "mp_os_total",
     "mp_texto_oov_taxa", "mp_texto_psi_classes", "mp_condicao_desconhecida_total",
+    "mp_f1_macro_amostra", "mp_f1_queda_pontos", "mp_amostra_rotulada_n",
     "http_request_duration_seconds",
 }
 
 
 def _metricas_em(expr: str) -> set[str]:
-    achadas = set(re.findall(r"\b(?:mp|http)_[a-z_]+", expr))
+    achadas = set(re.findall(r"\b(?:mp|http)_[a-z0-9_]+", expr))
     return {re.sub(r"_(bucket|count|sum)$", "", m) for m in achadas}
 
 
@@ -62,7 +63,7 @@ def test_fila_vem_do_endpoint_prioridade_via_infinity(dashboard):
 def test_regras_de_alerta_cobrem_drift_e_rul_critico():
     regras = yaml.safe_load((PROV / "alerting" / "regras.yml").read_text(encoding="utf-8"))
     rules = {r["uid"]: r for g in regras["groups"] for r in g["rules"]}
-    assert {"mp-drift-sensores", "mp-rul-critico"} <= set(rules)
+    assert {"mp-drift-sensores", "mp-rul-critico", "mp-f1-queda"} <= set(rules)
     for r in rules.values():
         assert r["annotations"]["description"]
         for d in r["data"]:
@@ -104,3 +105,12 @@ def test_plugin_infinity_fixado_em_versao_compativel_com_o_grafana():
     assert g["image"].endswith(":11.3.0")
     # Infinity 4.x exige Grafana >= 11.6 (react/jsx-runtime): sem fixar, a tabela da fila quebra no navegador
     assert g["environment"]["GF_INSTALL_PLUGINS"].split()[:2] == ["yesoreyeram-infinity-datasource", "3.7.1"]
+
+
+def test_alerta_de_f1_dispara_com_queda_de_10_pontos_ou_mais():
+    regras = yaml.safe_load((PROV / "alerting" / "regras.yml").read_text(encoding="utf-8"))
+    r = next(r for g in regras["groups"] for r in g["rules"] if r["uid"] == "mp-f1-queda")
+    assert r["data"][0]["model"]["expr"] == "mp_f1_queda_pontos"
+    ev = r["data"][2]["model"]["conditions"][0]["evaluator"]
+    assert ev["type"] == "gt" and 9.0 < ev["params"][0] <= 10.0  # "queda de 10 pontos" inclui o 10
+    assert "retreinar" in r["annotations"]["description"]
