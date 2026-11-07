@@ -6,16 +6,16 @@ paciência com algumas fórmulas.
 ## O problema
 
 Um motor gera 14 leituras de sensor (temperatura, pressão, rotação e outras) a cada ciclo de uso. Uma leitura
-isolada diz pouco: o que importa é como os valores **mudam ao longo dos ciclos**. Um motor saudável tem leituras
-estáveis; um motor perto de falhar mostra uma deriva lenta. Por isso o modelo recebe uma **janela de 30 ciclos
-seguidos** (uma matriz de 30 linhas por 14 colunas) e devolve um número: quantos ciclos ainda restam.
+isolada diz pouco: o que importa é como os valores mudam ao longo dos ciclos. Um motor saudável tem leituras
+estáveis; um motor perto de falhar mostra uma deriva lenta. Por isso o modelo recebe uma janela de 30 ciclos
+seguidos (uma matriz de 30 linhas por 14 colunas) e devolve um número: quantos ciclos ainda restam.
 
-Uma rede comum, que olha a janela inteira de uma vez, ignoraria a ordem dos ciclos. Uma rede **recorrente** lê um
+Uma rede comum, que olha a janela inteira de uma vez, ignoraria a ordem dos ciclos. Uma rede recorrente lê um
 ciclo por vez, na ordem, e carrega consigo uma memória do que já viu.
 
 ## Estado oculto: a memória da rede
 
-A rede recorrente mais simples mantém um vetor `h`, o **estado oculto**. A cada ciclo `t` ela combina a leitura nova
+A rede recorrente mais simples mantém um vetor `h`, o estado oculto. A cada ciclo `t` ela combina a leitura nova
 `x_t` com a memória anterior `h_(t-1)`:
 
 ```
@@ -26,7 +26,7 @@ Ao terminar os 30 ciclos, o último `h` resume a janela e uma camada final trans
 
 ## Pesos compartilhados entre os passos de tempo
 
-As matrizes `W`, `U` e o vetor `b` são **os mesmos nos 30 passos**. A rede não aprende uma regra para o ciclo 1,
+As matrizes `W`, `U` e o vetor `b` são os mesmos nos 30 passos. A rede não aprende uma regra para o ciclo 1,
 outra para o ciclo 2 e assim por diante: aprende uma única regra de "como atualizar a memória ao ver uma leitura" e a
 reaplica 30 vezes. Isso tem duas consequências boas. O número de parâmetros não cresce com o tamanho da janela, e o
 que a rede aprende vale em qualquer posição da janela.
@@ -35,7 +35,7 @@ que a rede aprende vale em qualquer posição da janela.
 
 Para ajustar `W`, `U` e `b`, o treino precisa saber como o erro final depende deles. Como a mesma regra foi aplicada
 30 vezes, "desenrolamos" a rede no tempo, como se fossem 30 camadas empilhadas com pesos iguais, e aplicamos a
-retropropagação normal. Isso se chama **BPTT** (retropropagação através do tempo). O gradiente do erro em relação
+retropropagação normal. Isso se chama BPTT (retropropagação através do tempo). O gradiente do erro em relação
 ao estado do ciclo 1 passa por todos os 29 ciclos seguintes:
 
 ```
@@ -52,7 +52,7 @@ gradiente explode.
 
 ## O que o LSTM muda
 
-O LSTM acrescenta um segundo vetor, o **estado da célula** `c`, e três **portões** que controlam o que entra, o que
+O LSTM acrescenta um segundo vetor, o estado da célula `c`, e três portões que controlam o que entra, o que
 fica e o que sai. Cada portão é uma pequena camada com saída entre 0 e 1:
 
 ```
@@ -65,7 +65,7 @@ c_t = f_t ⊙ c_(t-1) + i_t ⊙ g_t             memória: soma, não substituiç
 h_t = o_t ⊙ tanh(c_t)                       o que a célula mostra para fora
 ```
 
-O ponto decisivo é a linha de `c_t`. A memória antiga passa para o próximo passo **multiplicada só por `f_t`** e
+O ponto decisivo é a linha de `c_t`. A memória antiga passa para o próximo passo multiplicada só por `f_t` e
 somada ao que há de novo. O gradiente que volta ao longo de `c` também é multiplicado por `f_t`, sem passar por uma
 `tanh` nem por uma matriz cheia a cada passo. Quando a rede aprende `f_t` perto de 1, o erro viaja muitos ciclos para
 trás quase sem perder força. Os portões deixam a rede escolher o que guardar (uma deriva lenta de temperatura) e o que
@@ -85,7 +85,7 @@ que o LSTM costuma ser a primeira escolha para séries de sensores.
 | Dropout | 0,2 | 0 |
 | Dense | 16 neurônios, ReLU | 528 |
 | Dense | 1 neurônio, linear (RUL ÷ 125) | 17 |
-| **Total** | | **33.185** |
+| Total | | 33.185 |
 
 O primeiro LSTM entrega um vetor de 64 números por ciclo, e o segundo lê essa sequência e a resume em 32 números. As
 duas camadas permitem que a primeira aprenda padrões curtos (a leitura subiu e desceu) e a segunda padrões mais longos

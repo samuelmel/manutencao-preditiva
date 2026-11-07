@@ -1,191 +1,139 @@
-# Manutenção Preditiva 4.0
+# Manutenção preditiva 4.0
 
-RUL por LSTM (NASA C-MAPSS) + triagem de ordens de serviço por PLN, fundidos em uma fila de prioridade.
-Plano completo de engenharia: arquitetura medalhão (bronze/silver/gold), API FastAPI + ONNX, Prometheus + Grafana.
+Numa fábrica, saber quanto tempo um motor ainda aguenta e decidir qual ordem de serviço merece atenção primeiro costumam
+ser dois problemas separados, tratados por equipes e sistemas diferentes. Este projeto junta os dois e entrega uma fila
+única de manutenção, ordenada por urgência, que um planejador abre num painel do Grafana.
 
-## Status
+## Para que serve
 
-| Fase | Estado |
+Quem planeja manutenção tem duas fontes de informação que raramente se falam. Os sensores registram temperatura,
+pressão e rotação do motor a cada ciclo de uso, e mostram uma degradação lenta. As ordens de serviço trazem o que um
+operador viu e ouviu na máquina, escrito com pressa ("vibração acima do normal no compressor, peça HPC-0412").
+
+O sistema lê as duas fontes. Um modelo de séries temporais estima quantos ciclos de vida restam a cada motor. Um
+classificador de texto avalia a gravidade de cada ordem e extrai a peça e o sintoma. Uma regra de negócio combina as duas
+coisas numa nota de prioridade, e a lista ordenada por essa nota aparece no Grafana. Se os sensores passarem a se
+comportar de um jeito diferente do que o modelo viu no treino, ou se o classificador de texto piorar, o sistema levanta
+um alerta dizendo que é hora de retreinar.
+
+O desenho serve a qualquer parque de máquinas rotativas, como turbinas, compressores e bombas, em que uma parada fora de
+hora custa caro. O projeto foi feito como portfólio, com dados públicos, e não foi testado numa fábrica de verdade.
+
+## Os dados
+
+Os sensores vêm do C-MAPSS, da NASA: simulações de motores turbofan que vão da operação normal até a falha, em quatro
+conjuntos (FD001 a FD004) com condições de operação diferentes. São simulações, não motores reais.
+
+Não existe base pública de ordens de serviço em português. Por isso o projeto gera as ordens por templates, a partir do
+RUL real de cada motor, com abreviações, erros de digitação, sintomas ambíguos entre gravidades vizinhas e 10% dos rótulos
+trocados de propósito. Todo resultado de triagem de texto deste repositório vale para esse corpus sintético e não diz nada
+sobre ordens reais.
+
+## Como funciona
+
+```mermaid
+flowchart LR
+    A[Sensores dos motores<br/>C-MAPSS] --> B[Modelo de vida útil<br/>LSTM em ONNX]
+    C[Ordens de serviço<br/>texto] --> D[Classificador de gravidade<br/>DistilBERT INT8 ou TF-IDF]
+    B --> E[Fusão<br/>0,6 · RUL + 0,4 · gravidade]
+    D --> E
+    E --> F[Fila de manutenção<br/>API FastAPI]
+    F --> G[Prometheus e Grafana<br/>painéis e alertas]
+```
+
+Os dados passam por três camadas (bronze, silver e gold). O serviço usa só ONNX Runtime, sem PyTorch, e roda em CPU.
+O desenho completo, com o que fica em cada camada e a proposta para rodar o mesmo contêiner num gateway de fábrica, está
+em [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+
+## O que ficou pronto
+
+| Parte | Resultado |
 |---|---|
-| 0: repo, CI, bronze → silver → gold do C-MAPSS | feito (testado com dados sintéticos) |
-| 1: baselines + LSTM (FD001) + ONNX | feito; LSTM não superou o Random Forest (ver Resultados da Fase 1) |
-| 2: OS sintéticas + spaCy + TF-IDF/Word2Vec/LDA | feito (ver Resultados da Fase 2) |
-| 3: fusão, drift, API, Docker/Prometheus/Grafana | feito e verificado no Podman, com DistilBERT treinado no Colab (ver Fase 3) |
+| Vida útil (FD001) | O LSTM erra cerca de 13 ciclos em média. O Random Forest erra 11,96 e a média constante, 40,7. |
+| Triagem de ordens | F1-macro de 0,69 com rótulos que têm 10% de ruído. O TF-IDF (0,693) e o DistilBERT (0,690 a 0,696) empatam. |
+| Serviço | Imagem de 777 MB. A triagem com DistilBERT leva 33 ms (p95, via HTTP). A API usa 365 MB de RAM. |
+| Monitoramento | Dashboard com 9 painéis e 4 alertas (drift de sensores, RUL crítico, drift de classes, queda de F1), todos carregados por arquivo. |
+| Qualidade | 112 testes automáticos. O CI roda lint, testes e o build da imagem. |
 
-## Uso
+Dois resultados saíram diferentes do esperado e estão documentados. O LSTM não superou o Random Forest no FD001, depois de
+cinco tentativas de melhorá-lo (receitas de treino, janelas maiores, média de modelos, mistura e um modelo híbrido). E o
+DistilBERT, treinado numa GPU do Colab, empatou com o TF-IDF, porque o limite de acerto está no desenho do corpus
+sintético e não na capacidade do modelo. Os números completos e a discussão estão em
+[docs/RESULTADOS.md](docs/RESULTADOS.md).
 
-1. Baixe o C-MAPSS (NASA Prognostics Data Repository) e coloque `train_FD00x.txt`, `test_FD00x.txt`
-   e `RUL_FD00x.txt` em `data/raw_download/`.
-2. `make install && make data && make test` (usa [uv](https://docs.astral.sh/uv/); sem pip)
+## Como rodar
 
-`data/` não é versionado. Bronze é imutável: o pipeline copia os arquivos byte a byte, grava
-checksums em `MANIFEST.json` e falha se um original mudar.
+Você precisa de [uv](https://docs.astral.sh/uv/), Python 3.12 e, para a parte de contêineres, Docker ou Podman.
 
-## Decisões
+1. Baixe o C-MAPSS no NASA Prognostics Data Repository e coloque `train_FD00x.txt`, `test_FD00x.txt` e `RUL_FD00x.txt`
+   em `data/raw_download/`. A pasta `data/` não é versionada.
+2. Prepare o ambiente e rode o pipeline:
 
-- **RUL** = ciclo máximo do motor − ciclo atual, com teto em 125 (degradação inicial não é observável).
-- **Teste**: RUL do último ciclo vem de `RUL_FDxxx.txt`; os anteriores somam a distância ao fim.
-- **Sensores constantes** são detectados pela variância no treino, não por lista fixa.
-- **Normalização**: Min-Max ajustado só no treino; em FD002/FD004, por cluster K-Means (k=6) das 3 condições operacionais.
-  `Normalizer.cluster_distance` expõe a distância ao centroide para o alerta de condição nunca vista.
-- **Divisão treino/validação por `unit_id`**, nunca por linha (teste automático garante).
-- **Motor com < 30 ciclos**: início repetido e `low_conf_test=True`.
-- Limitação: o scaler é ajustado no arquivo de treino inteiro, antes da separação treino/validação por motor.
+```bash
+make install
+make reproduce
+```
 
-## Resultados da Fase 1 (FD001)
+O `make reproduce` roda `make data`, `make train-rul`, `make text` e `make serving`, com seeds fixas. Depois, suba o
+sistema e encha os painéis com tráfego simulado:
 
-RMSE em ciclos no conjunto de teste (100 motores, último ciclo de cada um). Menor é melhor.
-Janela de 30 ciclos, Adam, MSE, EarlyStopping; alvo escalado por RUL/125.
+```bash
+make up
+make simular
+```
 
-| Modelo | RMSE | Score NASA |
-|---|---|---|
-| Média constante | 40,69 | 19887 |
-| **Random Forest** (média, desvio, último valor e inclinação da janela) | **11,96** | 218 |
-| LSTM + features da janela (híbrido, média de 5 seeds) | 12,62 | 236 |
-| LSTM puro, receita final (dropout 0,1 + ReduceLROnPlateau, média de 3 seeds) | 13,23 | n/d |
-| LSTM puro, receita inicial (3 seeds) | 13,42 | n/d |
-| Mistura 30% LSTM + 70% RF | 11,76 | 209 |
+O Grafana abre em `http://127.0.0.1:3000` (usuário `admin`, senha `admin` por padrão, trocável por
+`GRAFANA_ADMIN_PASSWORD`). Com Podman, use `make up COMPOSE="podman compose"`. O DistilBERT é treinado à parte, no Colab,
+com o notebook gerado por `make colab`. Sem ele, a API usa o TF-IDF. No Windows, o `make` precisa ser instalado, ou os
+comandos `uv run` do Makefile podem ser rodados à mão.
 
-Exportação ONNX do LSTM: 0,32 MB, diferença máxima para o Keras de 8,4e-5 (tolerância 1e-4).
+Para rodar só os testes: `make test`.
 
-**Conclusão: o LSTM não bate o Random Forest no FD001.** Cinco abordagens deram o mesmo padrão
-(LSTM entre 12,6 e 13,5 contra 11,96 do RF):
+## Estrutura
 
-- Hiperparâmetros: batch 64/128/256, lr 1e-3 e 3e-3, dropout 0,1 e 0,2, scheduler. Variação de ~0,2 ciclo, ruído.
-- Média de 5 seeds: 13,13. Os modelos erram quase igual, então a média ajuda pouco.
-- Mistura LSTM + RF: 11,76 contra 11,96. Bootstrap (2000 reamostragens dos motores): IC 95% de −0,65 a +0,77,
-  indistinguível de ruído; a proporção foi escolhida olhando o teste, então não é um resultado limpo.
-- Híbrido (ramo LSTM + ramo denso com as features do RF): 12,62; bootstrap dá 16% de chance de ser melhor que o RF.
-- Janela maior: piora o teste (50 → LSTM 14,3 / RF 13,1; 70 → LSTM 15,9 / RF 14,9), mesmo com a validação melhorando.
-  O teste avalia só o fim de cada motor e há motores com poucos ciclos (mínimo 31): o início é preenchido com o
-  primeiro valor, o que injeta informação falsa. Vale para os dois modelos, por isso W=30 fica.
+```
+src/mp/
+  ingest/       bronze: leitura dos arquivos e checksums
+  transform/    silver e gold: RUL, normalização, janelas
+  textgen/      gerador das ordens de serviço sintéticas
+  nlp/          limpeza, NER, Word2Vec e LDA
+  models/       LSTM, baselines, classificadores de texto
+  api/          serviço FastAPI, métricas Prometheus
+  fusion.py     prioridade combinada
+  drift.py      PSI e KS
+configs/        parâmetros (dados, fusão, gatilhos)
+grafana/        fontes, dashboard e alertas versionados
+prometheus/     configuração de coleta
+docker/         Dockerfile da API
+notebooks/      treino do DistilBERT no Colab
+docs/           teoria, métricas, arquitetura e resultados
+tests/          112 testes
+```
 
-Explicação provável: FD001 tem poucos dados, sinais limpos e degradação quase linear, o que favorece modelos simples
-com boas estatísticas feitas à mão. O teste tem só 100 motores, então diferenças abaixo de ~1 ciclo não são conclusivas.
-A comparação deve ser refeita em FD002/FD004 (várias condições de operação), onde sequências costumam ajudar mais.
-Os experimentos foram feitos com scripts avulsos; a receita final ainda não está em `train_rul.py`.
+## O que não está feito
 
-## Resultados da Fase 2 (triagem de OS)
+Três ideias ficaram de fora e talvez entrem depois: detecção de anomalia em imagens (MVTec AD), detecção de anomalia em
+áudio de máquinas (MIMII) e resumos gerados por um modelo de linguagem. O áudio sozinho pede arquivos de 7 a 11 GB por
+tipo de máquina, o que passa do orçamento de disco do projeto.
 
-**Os textos são sintéticos.** Não existe dataset público de OS em português, então `mp.textgen` gera as OS por
-templates (sem LLM), a partir do RUL real do C-MAPSS: 4 ciclos por faixa de gravidade por motor, nos 4 subconjuntos
-(11.344 OS, classes balanceadas). A gravidade de referência vem do RUL (<15 crítica, <40 alta, <80 média, resto baixa).
-Para não ficar fácil demais: 30% das OS usam sintomas de uma gravidade vizinha, há abreviações ("rolam.", "temp"),
-erros de digitação, caixa alta/baixa, códigos com e sem hífen, e **10% dos rótulos são trocados de propósito**
-(`gravidade`; a referência limpa fica em `gravidade_ref`). Por isso o teto realista de acerto é bem abaixo de 100%.
+Outras limitações:
 
-Pipeline: `python -m mp.textgen.build` (bronze JSONL) → `python -m mp.train_triagem` (silver: limpeza, lemas, NER;
-depois baseline, Word2Vec e LDA). Divisão treino/teste por motor, nunca por OS (`GroupShuffleSplit`).
+- O LSTM foi treinado e servido só para o FD001. A comparação com o Random Forest nos conjuntos FD002 a FD004, que têm
+  várias condições de operação, ainda não foi feita.
+- A fila de manutenção fica em memória, então reiniciar a API a esvazia.
+- A imagem foi construída só para amd64, e o desenho para gateway de fábrica não foi testado em hardware.
+- Os modelos finais não foram publicados em GitHub Releases e os experimentos não estão em MLflow.
+- Word2Vec e LDA existem como código e métricas, mas a API não os usa.
 
-Baseline TF-IDF (1 a 3-gramas) + Regressão Logística, 20% dos motores no teste:
+## Documentação
 
-| Entrada | F1-macro (rótulo ruidoso) | F1-macro (referência) | Recall da classe crítica (ruidoso) |
-|---|---|---|---|
-| `texto_limpo` | 0,693 | 0,771 | 0,763 |
-| `lemas` (spaCy `pt_core_news_sm`) | 0,692 | 0,769 | 0,761 |
+- [README-PROCESSO.md](README-PROCESSO.md): como o projeto foi feito, o que deu errado e o que mudou pelo caminho.
+- [docs/RESULTADOS.md](docs/RESULTADOS.md): números, decisões técnicas e verificações.
+- [docs/TEORIA_LSTM.md](docs/TEORIA_LSTM.md): como o LSTM funciona, sem cálculo avançado.
+- [docs/METRICAS.md](docs/METRICAS.md): RMSE, Score da NASA, F1, PSI, KS e bootstrap.
+- [docs/ARQUITETURA.md](docs/ARQUITETURA.md): diagrama do sistema e desenho para borda.
 
-- Lemas e texto limpo empatam: o vocabulário sintético é pequeno e dirigido por templates, então lematizar não
-  acrescenta informação. O modelo usado fica registrado em `modelo_spacy` no parquet e em `artifacts/triagem/metrics.json`.
-- Com 10% de rótulos trocados, o recall da crítica de ≥ 0,85 (meta do plano) ainda não foi atingido; é a meta do
-  classificador final da Fase 3 (DistilBERT), não do baseline. Os erros se concentram entre classes vizinhas.
-- NER (EntityRuler): código de peça 100% (inclusive `HPC0412` e `hpc-0412`, que o NER genérico não pega);
-  cobertura de componente 93% e de sintoma 91%. O que falta são erros de digitação, que não casam com o léxico.
-- Word2Vec (50 dimensões, treinado no corpus) acha OS parecidas: para "vibração forte compressor alta" volta OS com o
-  mesmo sintoma, mesmo com palavras erradas ("verfiicar", "mootr").
-- LDA: k escolhido por coerência `c_v` entre 3, 4, 5, 6 e 8 → k = 8 (0,317). A coerência é baixa e os tópicos seguem
-  as palavras dos templates ("motor", "peça", "durante ronda"), efeito esperado de texto sintético; k = 8 é a borda do
-  intervalo testado.
+## Fontes
 
-## Ambiente
-
-`make install` usa Python 3.12. O `gensim` ainda não tem pacote pronto para Python 3.14, então crie o ambiente com 3.12:
-`uv venv --python 3.12 .venv && uv pip install --python .venv -e ".[dev,train,nlp]"`. O extra `nlp` já inclui o
-modelo `pt_core_news_sm` 3.8.0 (wheel da explosion/spacy-models). Sem ele o código cai para `blank("pt")`.
-
-## Fase 3 (serviço, drift e observabilidade)
-
-Fluxo: `make data` → `make train-rul` → `make text` → `make serving` (gera `artifacts/serving`) → `make up`.
-`make reproduce` encadeia `data`, `train-rul`, `text` e `serving` (RNF06: refaz tudo a partir do bronze, com seeds fixas); o DistilBERT
-é treinado à parte, no Colab. Requer `make` (no Windows: `winget install GnuWin32.Make` ou rodar os comandos `uv run ...` do Makefile à mão).
-Com Podman: `make up COMPOSE="podman compose"`.
-
-- **Fusão** (`mp.fusion`, pesos em `configs/fusion.yaml`): `0,6·(1 − min(RUL,125)/125) + 0,4·P(gravidade ∈ {alta, crítica})`.
-  É regra de negócio, não modelo treinado. Motor sem OS conhecida entra com a parcela da OS igual a 0.
-- **API** (`mp.api`, FastAPI + ONNX Runtime, sem PyTorch): `/rul`, `/triagem`, `/prioridade` (fila ordenada),
-  `/drift`, `/metrics` (Prometheus) e `/health`. Entrada inválida devolve 422. O classificador de gravidade em serviço
-  é o baseline TF-IDF + Regressão Logística (o DistilBERT ainda não foi treinado).
-- **Casos de borda:** motor com menos de 30 ciclos → `low_confidence=true`; RUL negativo → 0; OS vazia, só com código de
-  peça ou em outro idioma (>60% dos tokens fora do vocabulário) → `gravidade=indefinida` e `revisao_humana=true`;
-  condição operacional longe dos centroides de treino → `condicao_desconhecida=true` e contador no Prometheus.
-- **Drift:** PSI por sensor contra uma amostra do treino (gatilho: PSI > 0,2 em **mais de 3** sensores; KS sob demanda em
-  `/drift`), taxa de tokens fora do vocabulário e PSI da distribuição de gravidade das OS. O PSI dos sensores é recalculado
-  a cada 20 previsões: com KS a cada requisição o `/rul` levava 170 ms; agora a previsão custa ~1 ms.
-  O PSI das classes de OS usa uma **linha de base de produção** (as 100 primeiras OS), não o treino: o treino é balanceado
-  por construção e alarmaria sempre contra uma população real. Só passa a valer depois de 150 OS.
-- **Métricas** só com rótulos `unit_id`, `sensor` e `gravidade` (nunca texto de OS).
-- **Grafana versionado** (`grafana/`): fontes Prometheus e Infinity, dashboard gerado por `scripts/gerar_dashboard.py` e três
-  alertas (drift de sensores, RUL < 15, drift de classes de OS) carregados por *provisioning*. O mapa de calor do PSI é um
-  `state-timeline` por sensor. Prometheus com `--storage.tsdb.retention.size=200MB`; portas presas em `127.0.0.1`;
-  senha do Grafana em `GRAFANA_ADMIN_PASSWORD` (padrão local `admin`).
-- **Simulador:** `make simular` envia os 100 motores de teste e uma OS coerente com o RUL real de cada um;
-  `python -m mp.simular --drift` desloca 6 sensores e dispara o alerta.
-
-### Verificado nesta etapa
-- 81 testes passam (fusão, PSI/KS, contrato da API e 422, casos de borda, métricas, coerência dos JSON/YAML do Grafana com a API).
-- Teste com artefatos reais: RMSE pela API de motores de teste do FD001 < 16 (LSTM offline: ~13), `/rul` p95 < 50 ms e
-  `/triagem` p95 < 300 ms em CPU (RNF03 e RNF04).
-- Tráfego normal: 0 sensores em drift e PSI de texto 0. Com `--drift`: 6 sensores em drift e `alerta_drift=true` na API.
-
-### Verificado com `podman compose up` (Podman 5.8, Windows/WSL 2)
-- Imagem da API: **741 MB** (meta < 1 GB). Prometheus coleta a API (alvo `up`, 100 motores).
-- Grafana 11.3: fontes Prometheus e Infinity (health OK), dashboard e 3 alertas carregados por *provisioning*,
-  sem configuração pela interface. As consultas dos 8 painéis rodam sem erro e devolvem dados; a tabela da fila
-  usa `parser: backend` no Infinity (sem isso o plugin só monta a tabela no navegador).
-- Drift simulado (`python -m mp.simular --drift`) → alerta **Drift em mais de 3 sensores** em `firing`; motores com
-  RUL < 15 → **Motor com RUL crítico** em `firing`; o alerta de distribuição de OS segue `inactive` com tráfego normal.
-- Subir: `podman compose up --build -d` (ou `docker compose`); Grafana em `http://127.0.0.1:3000`
-  (admin / `GRAFANA_ADMIN_PASSWORD`, padrão `admin`). Na primeira vez o Grafana leva ~3 min migrando o banco e baixando o plugin.
-  Nomes de imagem com `docker.io/` porque o Podman não resolve nomes curtos. Para liberar memória: `podman compose down`
-  e `podman machine stop`.
-
-### Visto no navegador (Grafana 11.3 + Infinity 3.7.1)
-- A fila de manutenção, o RUL por motor, o PSI por sensor (linhas e mapa de calor), a pizza de gravidade, a latência e os
-  indicadores de drift renderizam com dados. O plugin Infinity está **fixado em 3.7.1**: a 4.x exige Grafana ≥ 11.6 e
-  quebrava a tabela no navegador (`react/jsx-runtime` 404), sem erro algum nas consultas pela API. A ordem das colunas
-  da tabela é fixada por transformação (o parser de backend as ordena por nome).
-- A fila fica em memória na API: reiniciar a API esvazia a tabela até chegarem novos `/rul` (limitação conhecida).
-
-### Ainda não feito
-- Gatilho de queda de 10 pontos no F1-macro numa amostra rotulada: a API não recebe rótulos; hoje só existe o proxy de
-  PSI das classes de OS.
-- Gatilho de queda de 10 pontos no F1-macro numa amostra rotulada é o único item acima que segue pendente
-  (o DistilBERT já foi treinado, ver abaixo).
-
-### DistilBERT multilíngue (treinado no Colab)
-`distilbert-base-multilingual-cased`, GPU T4 com fp16, 4 épocas, batch 32, lr 5e-5, janela de 64 tokens, texto bruto
-da OS. **143 s de treino.** Mesma divisão por motor e mesma seed do baseline; o teste são 2.272 OS de motores que o
-modelo não viu. Métricas completas em `docs/resultados/`.
-
-| Modelo | F1-macro (ruidoso) | F1-macro (referência) | Recall da crítica (ruidoso) | Recall da crítica (referência) |
-|---|---|---|---|---|
-| TF-IDF + Regressão Logística (`texto_limpo`) | 0,693 | 0,771 | 0,763 | **0,857** |
-| DistilBERT fp32 | **0,696** | **0,773** | 0,761 | 0,852 |
-| DistilBERT INT8 (o do serviço) | 0,690 | 0,768 | 0,746 | 0,836 |
-
-- **O DistilBERT não supera o TF-IDF neste corpus.** A diferença de 0,003 no F1-macro é ruído. O texto é sintético e
-  guiado por templates, e o limite de acerto vem do desenho dos dados (30% das OS usam sintomas de gravidade vizinha e 10%
-  dos rótulos são trocados de propósito), não da capacidade do modelo. Em OS reais, com paráfrases e vocabulário livre,
-  a vantagem de um modelo pré-treinado deve aparecer; aqui não dá para afirmar isso.
-- **Meta de recall da crítica ≥ 0,85:** atingida no rótulo de referência pelo TF-IDF (0,857) e pelo DistilBERT fp32
-  (0,852), **não** pelo INT8 (0,836), e não no rótulo ruidoso (0,75 a 0,76), que é o que um sistema real veria.
-  A quantização INT8 custou ~0,6 ponto de F1-macro e ~1,6 ponto de recall da crítica, em troca de um modelo 4× menor
-  (135,7 MB contra 541,4 MB) e do ONNX que cabe no `/releases`. O INT8 concorda com o fp32 em 97,5% das OS.
-- **Paridade:** o ONNX fp32 difere do PyTorch em no máximo 3,6e-7 na probabilidade (tolerância 1e-4).
-- **Serviço:** com `bert_int8.onnx` e `tokenizer.json` em `artifacts/serving`, a API usa o DistilBERT (ONNX Runtime +
-  `tokenizers`, sem PyTorch). Imagem de **777 MB**. Dentro do contêiner, `/triagem` leva p50 13,6 ms e p95 33 ms via HTTP
-  (meta < 300 ms). O TF-IDF continua como baseline e como detector de texto em outro idioma.
-- Reproduzir: `make colab` gera o zip e o notebook `notebooks/treinar_distilbert.ipynb`; os 3 arquivos que o notebook
-  devolve vão para `artifacts/bert/`, depois `make serving` e reiniciar a API. O pipeline também é coberto por
-  `tests/test_bert_pipeline.py` (modelo minúsculo, sem baixar nada).
-- Escolha honesta para produção: neste corpus o TF-IDF (< 5 MB, sem GPU) rende o mesmo; o DistilBERT fica como opção
-  já integrada, mas a vantagem dele só poderia ser demonstrada com OS reais.
+Os dados de sensores vêm do NASA Prognostics Data Repository (C-MAPSS). O classificador de texto parte do modelo
+`distilbert-base-multilingual-cased`, do Hugging Face, e o NER usa o `pt_core_news_sm`, do spaCy.
