@@ -1,9 +1,9 @@
-.PHONY: install data train-rul text serving colab reproduce up simular test lint
+.PHONY: install data train-rul text serving colab graficos reproduce up simular test lint
 COMPOSE ?= docker compose
 
 install:
 	uv venv --python 3.12 .venv
-	uv pip install --python .venv -e ".[dev,train,nlp,serve,bert]"
+	uv pip install --python .venv -e ".[dev,train,nlp,serve,bert,docs]"
 
 # Pipeline de dados: bronze -> silver -> gold do C-MAPSS (precisa dos .txt em data/raw_download)
 data:
@@ -24,6 +24,10 @@ serving:
 # Zip + notebook para treinar o DistilBERT no Colab
 colab:
 	uv run python scripts/empacotar_colab.py
+
+# Gráficos de resultados em img/ (a partir de docs/resultados)
+graficos:
+	uv run python scripts/gerar_graficos.py
 
 # RNF06: refaz tudo a partir do bronze (seeds fixas). O DistilBERT é treinado à parte, no Colab.
 reproduce: data train-rul text serving

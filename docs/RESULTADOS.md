@@ -38,6 +38,15 @@ MSE, EarlyStopping, alvo escalado por RUL/125.
 O ONNX do LSTM pesa 0,32 MB e difere do Keras em no máximo 8,4e-5 (tolerância de 1e-4). O que o Score e as outras
 métricas medem está em [METRICAS.md](METRICAS.md), e a teoria do modelo em [TEORIA_LSTM.md](TEORIA_LSTM.md).
 
+![Comparação de RMSE entre os modelos de vida útil](../img/rul_comparacao.png)
+
+*RMSE de cada abordagem no teste do FD001. A média constante (40,7) ficou fora do gráfico.*
+
+![RUL previsto contra RUL real nos 100 motores de teste](../img/rul_previsto_vs_real.png)
+
+*Previsto contra real nos 100 motores de teste. Os dois modelos acompanham a diagonal, e o LSTM espalha mais nos motores saudáveis.*
+
+
 O LSTM não bate o Random Forest no FD001. Cinco abordagens deram o mesmo padrão, com o LSTM entre 12,6 e 13,5 contra
 11,96 do Random Forest:
 
@@ -52,6 +61,11 @@ O LSTM não bate o Random Forest no FD001. Cinco abordagens deram o mesmo padrã
   14,9, mesmo com a validação melhorando. O teste avalia só o fim de cada motor, e alguns motores têm poucos ciclos (o
   menor tem 31). O início da janela é preenchido com o primeiro valor, o que injeta informação falsa. Isso vale para os
   dois modelos, e por isso a janela fica em 30.
+
+![RMSE em função do tamanho da janela](../img/janela_vs_rmse.png)
+
+*Random Forest e LSTM com janelas de 30, 50 e 70 ciclos.*
+
 
 O FD001 tem poucos motores, sinais limpos e degradação quase linear, o que favorece modelos simples com boas
 estatísticas feitas à mão. Com 100 motores de teste, diferenças abaixo de um ciclo não são conclusivas. A comparação
@@ -100,6 +114,19 @@ do baseline, e o teste tem 2.272 OS de motores que o modelo não viu.
 | TF-IDF e Regressão Logística (`texto_limpo`) | 0,693 | 0,771 | 0,763 | 0,857 |
 | DistilBERT fp32 | 0,696 | 0,773 | 0,761 | 0,852 |
 | DistilBERT INT8 (o que o serviço usa) | 0,690 | 0,768 | 0,746 | 0,836 |
+
+![Matriz de confusão da triagem](../img/triagem_matriz_confusao.png)
+
+*Matriz de confusão no rótulo de referência, em porcentagem por linha. Os erros se concentram entre gravidades vizinhas, e baixa e crítica quase nunca se confundem.*
+
+![Recall da classe crítica](../img/triagem_recall_critica.png)
+
+*Recall da classe crítica por modelo, nos dois rótulos. A linha vermelha é a meta de 0,85.*
+
+![Curvas de treino do DistilBERT](../img/distilbert_treino.png)
+
+*Perda de treino e F1-macro de validação por época. O F1 atinge o platô na terceira época.*
+
 
 - O DistilBERT não supera o TF-IDF neste corpus. A diferença de 0,003 no F1-macro é ruído. O texto é sintético e guiado
   por templates, e o limite de acerto vem do desenho dos dados, com sintomas de gravidade vizinha e 10% de rótulos
@@ -175,6 +202,19 @@ Com `podman compose up` (Podman 5.8, Windows com WSL 2):
   `firing`. O alerta de distribuição de OS segue `inactive` com tráfego normal.
 - Num navegador, a fila de manutenção, o RUL por motor, o PSI por sensor, a pizza de gravidade, a latência e os
   indicadores de drift renderizam com dados.
+
+![Dashboard do Grafana](../img/grafana_dashboard.jpg)
+
+*Dashboard depois de um episódio de drift forçado nos 6 sensores. O histórico mostra o pico de PSI e o mapa de calor mostra os sensores deslocados em vermelho. O painel de F1 no fim mostra a queda de 47,5 pontos da última amostra degradada.*
+
+![Alertas do Grafana](../img/grafana_alertas.jpg)
+
+*Regras de alerta carregadas por provisioning. Durante o incidente, drift de sensores, RUL crítico e queda de F1 estavam em disparo, e a regra de distribuição de OS seguia normal.*
+
+![Gatilho de retreino por F1-macro](../img/gatilho_f1.png)
+
+*Gatilho de retreino medido no contêiner com `python -m mp.simular --f1` e `--f1-degradado`.*
+
 
 Dois cuidados saíram dessa verificação. O plugin Infinity está fixado na versão 3.7.1, porque a 4.x exige Grafana 11.6
 ou mais novo e quebrava a tabela no navegador (erro 404 em `react/jsx-runtime`) sem nenhum erro nas consultas pela API.
