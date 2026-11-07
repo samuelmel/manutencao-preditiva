@@ -1,0 +1,120 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: manutencao
+    folder: Manutenção preditiva
+    interval: 1m
+    rules:
+      - uid: mp-drift-sensores
+        title: Drift em mais de 3 sensores
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: mp_sensores_drift, instant: true }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [3] }
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: PSI acima de 0,2 em mais de 3 sensores
+          description: >-
+            O perfil dos sensores mudou em relação ao treino. Recomendação: avaliar o RUL com cautela
+            e retreinar o LSTM com dados recentes.
+
+      - uid: mp-rul-critico
+        title: Motor com RUL crítico
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: min(mp_rul_ciclos), instant: true }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [15] }
+        noDataState: OK
+        execErrState: Error
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: Há motor com menos de 15 ciclos de vida restante
+          description: Veja a fila de manutenção no painel e programe a parada do motor mais prioritário.
+
+      - uid: mp-drift-texto
+        title: Mudança na distribuição de gravidade das OS
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: mp_texto_psi_classes, instant: true }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [0.2] }
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: PSI da distribuição de classes das OS acima de 0,2
+          description: >-
+            A proporção de OS por gravidade mudou em relação ao treino. Recomendação: avaliar o F1-macro
+            numa amostra rotulada e retreinar o classificador se cair 10 pontos.
+
+      - uid: mp-f1-queda
+        title: F1-macro das OS caiu 10 pontos ou mais
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: { from: 3600, to: 0 }
+            datasourceUid: prometheus
+            model: { refId: A, expr: mp_f1_queda_pontos, instant: true }
+          - refId: B
+            datasourceUid: __expr__
+            model: { refId: B, type: reduce, expression: A, reducer: last }
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: gt, params: [9.99] }
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        labels: { severity: critical }
+        annotations:
+          summary: O classificador perdeu 10 pontos de F1-macro numa amostra rotulada
+          description: >-
+            O F1-macro medido numa amostra rotulada (POST /triagem/avaliar) ficou 10 pontos ou mais abaixo
+            do F1 de referencia do treino. Recomendacao: retreinar o classificador de gravidade com OS recentes.

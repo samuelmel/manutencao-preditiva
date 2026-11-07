@@ -1,0 +1,242 @@
+{
+  "modelo_spacy": "pt_core_news_sm",
+  "n_os": 11344,
+  "ner_codigo_acuracia": 1.0,
+  "ner_componente_cobertura": 0.9341502115655853,
+  "ner_sintoma_cobertura": 0.9136988716502116,
+  "n_treino": 9072,
+  "n_teste": 2272,
+  "tfidf_lr[texto_limpo]": {
+    "ruidoso": {
+      "f1_macro": 0.6930705913419583,
+      "recall": {
+        "baixa": 0.7707231040564374,
+        "média": 0.6086175942549371,
+        "alta": 0.6306620209059234,
+        "crítica": 0.7630662020905923
+      },
+      "matriz_confusao": [
+        [
+          437,
+          89,
+          21,
+          20
+        ],
+        [
+          96,
+          339,
+          103,
+          19
+        ],
+        [
+          18,
+          95,
+          362,
+          99
+        ],
+        [
+          21,
+          20,
+          95,
+          438
+        ]
+      ]
+    },
+    "referencia": {
+      "f1_macro": 0.7706355701399253,
+      "recall": {
+        "baixa": 0.8538732394366197,
+        "média": 0.6672535211267606,
+        "alta": 0.7059859154929577,
+        "crítica": 0.8573943661971831
+      },
+      "matriz_confusao": [
+        [
+          485,
+          83,
+          0,
+          0
+        ],
+        [
+          87,
+          379,
+          100,
+          2
+        ],
+        [
+          0,
+          80,
+          401,
+          87
+        ],
+        [
+          0,
+          1,
+          80,
+          487
+        ]
+      ]
+    }
+  },
+  "tfidf_lr[lemas]": {
+    "ruidoso": {
+      "f1_macro": 0.6924727068331522,
+      "recall": {
+        "baixa": 0.7707231040564374,
+        "média": 0.6014362657091562,
+        "alta": 0.6376306620209059,
+        "crítica": 0.7613240418118467
+      },
+      "matriz_confusao": [
+        [
+          437,
+          88,
+          23,
+          19
+        ],
+        [
+          97,
+          335,
+          104,
+          21
+        ],
+        [
+          19,
+          88,
+          366,
+          101
+        ],
+        [
+          21,
+          20,
+          96,
+          437
+        ]
+      ]
+    },
+    "referencia": {
+      "f1_macro": 0.7687136169612779,
+      "recall": {
+        "baixa": 0.852112676056338,
+        "média": 0.6602112676056338,
+        "alta": 0.7112676056338029,
+        "crítica": 0.8538732394366197
+      },
+      "matriz_confusao": [
+        [
+          484,
+          81,
+          3,
+          0
+        ],
+        [
+          89,
+          375,
+          100,
+          4
+        ],
+        [
+          1,
+          74,
+          404,
+          89
+        ],
+        [
+          0,
+          1,
+          82,
+          485
+        ]
+      ]
+    }
+  },
+  "w2v_exemplo": {
+    "consulta": "vibração forte compressor alta",
+    "vizinhas": [
+      "os hpc-0508 - vibração forte. verfiicar compressor de alta.",
+      "moor 190: vibração forte em turbina ap (hpt0313).",
+      "mootr 194: vibração forte em turbina de baixa (lpt0283)."
+    ],
+    "similaridade": [
+      0.9963414072990417,
+      0.982012927532196,
+      0.9794584512710571
+    ]
+  },
+  "lda": {
+    "melhor_k": 8,
+    "coerencia_cv": {
+      "3": 0.23370216041258027,
+      "4": 0.239707788495264,
+      "5": 0.27548936268811175,
+      "6": 0.2637062902381844,
+      "8": 0.3174226503624007
+    },
+    "topicos": [
+      [
+        "motor",
+        "ciclo",
+        "trocar",
+        "visível",
+        "eixo",
+        "rolamento"
+      ],
+      [
+        "pressão",
+        "compressor",
+        "baixo",
+        "turbina",
+        "alto",
+        "leitura"
+      ],
+      [
+        "ref",
+        "vibração",
+        "chamado",
+        "normal",
+        "chamar",
+        "compressor"
+      ],
+      [
+        "temperatura",
+        "pequeno",
+        "combustao",
+        "folga",
+        "recorrente",
+        "variação"
+      ],
+      [
+        "perda",
+        "total",
+        "combustão",
+        "câmara",
+        "rendimento",
+        "falha"
+      ],
+      [
+        "relatar",
+        "operador",
+        "peça",
+        "óleo",
+        "pequeno",
+        "vazamento"
+      ],
+      [
+        "bomba",
+        "ruído",
+        "óleo",
+        "metálico",
+        "ventilador",
+        "principal"
+      ],
+      [
+        "durante",
+        "motor",
+        "ronda",
+        "peça",
+        "súbito",
+        "parada"
+      ]
+    ]
+  }
+}
