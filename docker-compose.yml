@@ -26,7 +26,7 @@ services:
   grafana:
     image: docker.io/grafana/grafana:11.3.0
     environment:
-      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource 3.7.1  # 4.x exige Grafana >= 11.6
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:

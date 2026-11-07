@@ -52,6 +52,8 @@ fila = painel(
                 g: {"color": c, "index": i} for i, (g, c) in enumerate(COR_GRAVIDADE.items())}}]}]},
     ]},
     options={"sortBy": [{"displayName": "Prioridade", "desc": True}], "showHeader": True},
+    transformations=[{"id": "organize", "options": {"indexByName": {
+        "Motor": 0, "RUL (ciclos)": 1, "Prioridade": 2, "Gravidade da OS": 3, "Crítico": 4}}}],
 )
 
 rul = painel(

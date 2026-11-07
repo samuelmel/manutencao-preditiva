@@ -55,6 +55,8 @@ def test_fila_vem_do_endpoint_prioridade_via_infinity(dashboard):
     t = fila["targets"][0]
     assert t["url"].endswith("/prioridade") and t["root_selector"] == "itens"
     assert t["parser"] == "backend"  # sem isso a tabela só é montada no navegador
+    ordem = fila["transformations"][0]["options"]["indexByName"]  # o backend ordena colunas por nome
+    assert min(ordem, key=ordem.get) == "Motor"
 
 
 def test_regras_de_alerta_cobrem_drift_e_rul_critico():
@@ -94,3 +96,11 @@ def test_dashboard_no_repo_esta_atualizado_com_o_gerador(dashboard):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     assert mod.dashboard == dashboard
+
+
+def test_plugin_infinity_fixado_em_versao_compativel_com_o_grafana():
+    c = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    g = c["services"]["grafana"]
+    assert g["image"].endswith(":11.3.0")
+    # Infinity 4.x exige Grafana >= 11.6 (react/jsx-runtime): sem fixar, a tabela da fila quebra no navegador
+    assert g["environment"]["GF_INSTALL_PLUGINS"].split()[:2] == ["yesoreyeram-infinity-datasource", "3.7.1"]

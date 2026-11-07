@@ -178,7 +178,21 @@
           }
         ],
         "showHeader": true
-      }
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "Motor": 0,
+              "RUL (ciclos)": 1,
+              "Prioridade": 2,
+              "Gravidade da OS": 3,
+              "Crítico": 4
+            }
+          }
+        }
+      ]
     },
     {
       "id": 2,

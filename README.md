@@ -145,8 +145,14 @@ Fluxo: `make data` → `make train-rul` → `make text` → `make serving` (gera
   Nomes de imagem com `docker.io/` porque o Podman não resolve nomes curtos. Para liberar memória: `podman compose down`
   e `podman machine stop`.
 
+### Visto no navegador (Grafana 11.3 + Infinity 3.7.1)
+- A fila de manutenção, o RUL por motor, o PSI por sensor (linhas e mapa de calor), a pizza de gravidade, a latência e os
+  indicadores de drift renderizam com dados. O plugin Infinity está **fixado em 3.7.1**: a 4.x exige Grafana ≥ 11.6 e
+  quebrava a tabela no navegador (`react/jsx-runtime` 404), sem erro algum nas consultas pela API. A ordem das colunas
+  da tabela é fixada por transformação (o parser de backend as ordena por nome).
+- A fila fica em memória na API: reiniciar a API esvazia a tabela até chegarem novos `/rul` (limitação conhecida).
+
 ### Ainda não feito
-- Olhar os painéis renderizados num navegador (as consultas foram verificadas pela API do Grafana, não a aparência).
 - Gatilho de queda de 10 pontos no F1-macro numa amostra rotulada: a API não recebe rótulos; hoje só existe o proxy de
   PSI das classes de OS.
 - DistilBERT multilíngue (fine-tuning, INT8, recall da crítica ≥ 0,85) e o teste de paridade ONNX × modelo do classificador.
