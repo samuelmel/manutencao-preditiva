@@ -10,7 +10,7 @@ Plano completo de engenharia: arquitetura medalhão (bronze/silver/gold), API Fa
 | 0: repo, CI, bronze → silver → gold do C-MAPSS | feito (testado com dados sintéticos) |
 | 1: baselines + LSTM (FD001) + ONNX | feito; LSTM não superou o Random Forest (ver Resultados da Fase 1) |
 | 2: OS sintéticas + spaCy + TF-IDF/Word2Vec/LDA | feito (ver Resultados da Fase 2) |
-| 3: fusão, drift, API, Docker/Prometheus/Grafana | software testado; Docker e Grafana ainda não executados; DistilBERT pendente (ver Fase 3) |
+| 3: fusão, drift, API, Docker/Prometheus/Grafana | feito e verificado no Podman; DistilBERT pendente (ver Fase 3) |
 
 ## Uso
 
@@ -133,9 +133,20 @@ Fluxo: `make data` → `make train-rul` → `make text` → `make serving` (gera
   `/triagem` p95 < 300 ms em CPU (RNF03 e RNF04).
 - Tráfego normal: 0 sensores em drift e PSI de texto 0. Com `--drift`: 6 sensores em drift e `alerta_drift=true` na API.
 
-### Ainda não verificado
-- `docker compose up`, o build da imagem (meta < 1 GB), o carregamento dos alertas e a renderização dos painéis no Grafana.
-  Os arquivos passam em testes de coerência, mas ninguém abriu o Grafana.
+### Verificado com `podman compose up` (Podman 5.8, Windows/WSL 2)
+- Imagem da API: **741 MB** (meta < 1 GB). Prometheus coleta a API (alvo `up`, 100 motores).
+- Grafana 11.3: fontes Prometheus e Infinity (health OK), dashboard e 3 alertas carregados por *provisioning*,
+  sem configuração pela interface. As consultas dos 8 painéis rodam sem erro e devolvem dados; a tabela da fila
+  usa `parser: backend` no Infinity (sem isso o plugin só monta a tabela no navegador).
+- Drift simulado (`python -m mp.simular --drift`) → alerta **Drift em mais de 3 sensores** em `firing`; motores com
+  RUL < 15 → **Motor com RUL crítico** em `firing`; o alerta de distribuição de OS segue `inactive` com tráfego normal.
+- Subir: `podman compose up --build -d` (ou `docker compose`); Grafana em `http://127.0.0.1:3000`
+  (admin / `GRAFANA_ADMIN_PASSWORD`, padrão `admin`). Na primeira vez o Grafana leva ~3 min migrando o banco e baixando o plugin.
+  Nomes de imagem com `docker.io/` porque o Podman não resolve nomes curtos. Para liberar memória: `podman compose down`
+  e `podman machine stop`.
+
+### Ainda não feito
+- Olhar os painéis renderizados num navegador (as consultas foram verificadas pela API do Grafana, não a aparência).
 - Gatilho de queda de 10 pontos no F1-macro numa amostra rotulada: a API não recebe rótulos; hoje só existe o proxy de
-  PSI das classes. Teste de paridade ONNX × Keras do classificador depende do DistilBERT.
-- DistilBERT multilíngue (fine-tuning, INT8, recall da crítica ≥ 0,85) ainda não foi feito.
+  PSI das classes de OS.
+- DistilBERT multilíngue (fine-tuning, INT8, recall da crítica ≥ 0,85) e o teste de paridade ONNX × modelo do classificador.

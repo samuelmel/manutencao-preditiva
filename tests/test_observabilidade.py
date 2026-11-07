@@ -54,6 +54,7 @@ def test_fila_vem_do_endpoint_prioridade_via_infinity(dashboard):
     fila = next(p for p in dashboard["panels"] if p["title"].startswith("Fila"))
     t = fila["targets"][0]
     assert t["url"].endswith("/prioridade") and t["root_selector"] == "itens"
+    assert t["parser"] == "backend"  # sem isso a tabela só é montada no navegador
 
 
 def test_regras_de_alerta_cobrem_drift_e_rul_critico():

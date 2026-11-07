@@ -27,7 +27,8 @@ COR_GRAVIDADE = {"crítica": "red", "alta": "orange", "média": "yellow", "baixa
 fila = painel(
     1, "table", "Fila de manutenção (RUL + gravidade da OS)", 0, 0, 24, 10, datasource=INF,
     targets=[{
-        "refId": "A", "datasource": INF, "type": "json", "source": "url", "format": "table",
+        "refId": "A", "datasource": INF, "type": "json", "parser": "backend", "source": "url",
+        "format": "table",
         "url": "http://api:8000/prioridade", "url_options": {"method": "GET", "data": ""},
         "root_selector": "itens",
         "columns": [

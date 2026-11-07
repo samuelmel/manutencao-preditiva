@@ -37,6 +37,7 @@
             "uid": "infinity"
           },
           "type": "json",
+          "parser": "backend",
           "source": "url",
           "format": "table",
           "url": "http://api:8000/prioridade",
