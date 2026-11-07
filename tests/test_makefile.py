@@ -8,7 +8,7 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 
 def _alvos():
-    return set(re.findall(r"^([a-z][a-z0-9-]*):", MAKEFILE, flags=re.M))
+    return set(re.findall(r"^([a-z][a-z0-9-]*):", MAKEFILE, flags=re.MULTILINE))
 
 
 def test_todo_make_citado_no_readme_existe():
@@ -18,13 +18,13 @@ def test_todo_make_citado_no_readme_existe():
 
 
 def test_reproduce_refaz_os_passos_a_partir_do_bronze():
-    m = re.search(r"^reproduce:(.*)$", MAKEFILE, flags=re.M)
+    m = re.search(r"^reproduce:(.*)$", MAKEFILE, flags=re.MULTILINE)
     assert m, "falta o alvo reproduce (RNF06)"
     assert {"data", "train-rul", "text", "serving"} <= set(m.group(1).split())
 
 
 def test_alvos_do_phony_existem():
-    phony = set(re.search(r"^\.PHONY:(.*)$", MAKEFILE, flags=re.M).group(1).split())
+    phony = set(re.search(r"^\.PHONY:(.*)$", MAKEFILE, flags=re.MULTILINE).group(1).split())
     assert phony <= _alvos(), phony - _alvos()
 
 
