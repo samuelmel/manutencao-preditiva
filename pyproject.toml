@@ -8,7 +8,11 @@ dependencies = ["numpy", "pandas", "pyarrow", "scikit-learn", "pyyaml"]
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
 train = ["keras>=3", "torch", "onnx", "onnxscript", "onnxruntime"]
-nlp = ["spacy>=3.7", "gensim>=4.3"]
+nlp = [
+    "spacy>=3.7",
+    "gensim>=4.3",
+    "pt_core_news_sm @ https://github.com/explosion/spacy-models/releases/download/pt_core_news_sm-3.8.0/pt_core_news_sm-3.8.0-py3-none-any.whl",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
