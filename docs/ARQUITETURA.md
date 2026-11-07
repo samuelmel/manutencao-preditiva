@@ -94,7 +94,8 @@ flowchart LR
 **Por que o desenho se sustenta:**
 
 - **Sem PyTorch na imagem.** A imagem tem 777 MB e o serviço carrega só ONNX Runtime, `tokenizers` e scikit-learn. A
-  inferência roda em CPU, sem GPU.
+  inferência roda em CPU, sem GPU. Medido no contêiner depois de 400 requisições: a API usa 365 MB de RAM com o
+  DistilBERT, o LSTM e o TF-IDF carregados, e o Prometheus local usa 24 MB.
 - **Latência baixa e local.** Em CPU, `/rul` fica abaixo de 50 ms e `/triagem` com o DistilBERT leva 33 ms (p95, via
   HTTP, no contêiner). Não há ida e volta até a nuvem.
 - **Funciona sem internet.** A API não chama nenhum serviço externo. Se a rede cair, a fila continua sendo calculada e
@@ -110,6 +111,6 @@ flowchart LR
   `scikit-learn` e `pyarrow` publicam pacotes para essa arquitetura, mas isso não foi testado aqui.
 - A fila de prioridade fica **em memória**: reiniciar o contêiner a esvazia até chegarem novas leituras. Num gateway
   real seria preciso persistir esse estado (um arquivo SQLite resolve).
-- Medir consumo de memória e CPU no hardware escolhido.
+- Repetir a medida de memória e CPU no hardware escolhido (os 365 MB acima são de um PC x86 com Podman).
 - Definir quem alimenta o `/rul` (um agente no CLP, um coletor MQTT) e como a OS chega do tablet. O serviço só expõe a
   API HTTP.
