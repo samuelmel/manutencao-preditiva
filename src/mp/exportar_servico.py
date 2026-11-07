@@ -48,12 +48,21 @@ def main() -> None:
     modelo = baseline(seed).fit(tr["texto_limpo"], tr["gravidade"])
     joblib.dump(modelo, out / "triagem_tfidf.joblib", compress=3)
     prop = tr["gravidade"].value_counts(normalize=True)
+    bert_dir = ROOT / "artifacts" / "bert"
+    usa_bert = (bert_dir / "bert_int8.onnx").exists() and (bert_dir / "tokenizer.json").exists()
+    if usa_bert:
+        shutil.copy(bert_dir / "bert_int8.onnx", out / "bert_int8.onnx")
+        shutil.copy(bert_dir / "tokenizer.json", out / "tokenizer.json")
+        bert_max_len = json.loads((bert_dir / "metrics.json").read_text(encoding="utf-8"))["max_len"]
     meta = {
         "fd": a.fd,
         "janela": cfg["window"],
         "limite_distancia": float(dist.max() * 1.5 + 1e-9),
         "classes_ref": {g: float(prop.get(g, 0.0)) for g in GRAVIDADES},
+        "classificador": "distilbert-int8" if usa_bert else "tfidf-lr",
     }
+    if usa_bert:
+        meta["bert_max_len"] = bert_max_len
     (out / "meta.json").write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
     tamanho = sum(f.stat().st_size for f in out.iterdir()) / 1e6
     print(f"artefatos em {out} ({tamanho:.2f} MB):", sorted(p.name for p in out.iterdir()))

@@ -7,7 +7,8 @@ dependencies = ["numpy", "pandas", "pyarrow", "scikit-learn", "pyyaml"]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "httpx"]
-serve = ["fastapi>=0.110", "uvicorn>=0.29", "onnxruntime", "prometheus-client", "joblib"]
+serve = ["fastapi>=0.110", "uvicorn>=0.29", "onnxruntime", "prometheus-client", "joblib", "tokenizers>=0.19"]
+bert = ["transformers>=4.40", "torch", "onnx", "onnxscript", "onnxruntime"]
 train = ["keras>=3", "torch", "onnx", "onnxscript", "onnxruntime"]
 nlp = [
     "spacy>=3.7",

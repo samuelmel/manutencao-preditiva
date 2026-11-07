@@ -36,6 +36,32 @@ class OnnxRul:
         return self.sess.run(None, {self.entrada: janelas.astype(np.float32)})[0].ravel()
 
 
+class ClassificadorOnnx:
+    """DistilBERT INT8 em ONNX Runtime + `tokenizer.json` (biblioteca `tokenizers`, sem PyTorch)."""
+
+    def __init__(self, sess, tokenizer, classes: list[str], max_len: int = 64):
+        self.sess, self.tok, self.classes = sess, tokenizer, list(classes)
+        self.tok.enable_truncation(max_length=max_len)
+        self.tok.enable_padding()
+
+    @classmethod
+    def de_pasta(cls, pasta: Path, classes: list[str], max_len: int = 64) -> ClassificadorOnnx:
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+
+        sess = ort.InferenceSession(str(pasta / "bert_int8.onnx"),
+                                    providers=["CPUExecutionProvider"])
+        return cls(sess, Tokenizer.from_file(str(pasta / "tokenizer.json")), classes, max_len)
+
+    def predict_proba(self, textos: list[str]) -> np.ndarray:
+        enc = self.tok.encode_batch(list(textos))
+        ids = np.array([e.ids for e in enc], dtype=np.int64)
+        mask = np.array([e.attention_mask for e in enc], dtype=np.int64)
+        lg = self.sess.run(None, {"input_ids": ids, "attention_mask": mask})[0]
+        e = np.exp(lg - lg.max(axis=1, keepdims=True))
+        return e / e.sum(axis=1, keepdims=True)
+
+
 class ServicoRul:
     def __init__(self, modelo: ModeloRul, norm: dict, ref: dict[str, np.ndarray],
                  limite_distancia: float, janela: int = 30, cfg: dict | None = None):
@@ -98,16 +124,20 @@ class ServicoRul:
 
 
 class ServicoTriagem:
-    def __init__(self, modelo, ref_classes: dict[str, float] | None = None, n_base: int = 100):
+    def __init__(self, modelo, ref_classes: dict[str, float] | None = None, n_base: int = 100,
+                 classificador=None):
         """`ref_classes` (proporção no treino) é só informativa: o treino é balanceado por
         construção, então o drift de classes usa uma linha de base de produção (as `n_base`
         primeiras OS triadas), não o treino."""
         self.modelo = modelo
+        # `classificador` (ex.: DistilBERT) dá as probabilidades; o TF-IDF segue como baseline e
+        # fornece o vocabulário para detectar texto de outro idioma. Texto bruto vai ao DistilBERT.
+        self.classificador = classificador
         self.n_base = n_base
         self.baseline: dict[str, float] | None = None
         self.primeiros: list[str] = []
         self.total = 0
-        self.classes = list(modelo.classes_)
+        self.classes = list(classificador.classes if classificador else modelo.classes_)
         self.vocab = {t for t in modelo.named_steps["tfidf"].vocabulary_ if " " not in t}
         self.recentes: deque[str] = deque(maxlen=200)
         self.oov: deque[float] = deque(maxlen=200)
@@ -125,7 +155,10 @@ class ServicoTriagem:
         if oov > LIMIAR_OOV:
             return {**base, "gravidade": "indefinida", "motivo": "vocabulário desconhecido",
                     "p_grave": None, "probabilidades": {}}
-        proba = self.modelo.predict_proba([limpo])[0]
+        if self.classificador is not None:
+            proba = self.classificador.predict_proba([texto.strip()])[0]
+        else:
+            proba = self.modelo.predict_proba([limpo])[0]
         probs = {c: float(p) for c, p in zip(self.classes, proba, strict=True)}
         grav = max(probs, key=probs.get)
         self.recentes.append(grav)
@@ -189,5 +222,9 @@ def carregar(pasta: Path, cfg: dict):
     ref = {s: ref_npz[s] for s in norm["sensors"]}
     rul = ServicoRul(OnnxRul(pasta / "lstm.onnx"), norm, ref, meta["limite_distancia"],
                      meta["janela"], cfg)
-    tri = ServicoTriagem(joblib.load(pasta / "triagem_tfidf.joblib"), meta["classes_ref"])
+    clf = None
+    if (pasta / "bert_int8.onnx").exists() and (pasta / "tokenizer.json").exists():
+        clf = ClassificadorOnnx.de_pasta(pasta, GRAVIDADES, meta.get("bert_max_len", 64))
+    tri = ServicoTriagem(joblib.load(pasta / "triagem_tfidf.joblib"), meta["classes_ref"],
+                         classificador=clf)
     return rul, tri
