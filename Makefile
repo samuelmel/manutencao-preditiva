@@ -1,4 +1,4 @@
-.PHONY: install data test lint
+.PHONY: install data text train-rul serving up simular test lint
 install:
 	uv venv --python 3.12 .venv
 	uv pip install --python .venv -e ".[dev,train]"

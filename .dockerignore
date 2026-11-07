@@ -1,0 +1,12 @@
+.git
+.venv*
+data
+artifacts
+notebooks
+tests
+grafana
+prometheus
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache

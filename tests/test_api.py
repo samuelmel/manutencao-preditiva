@@ -162,3 +162,31 @@ def test_metricas_expostas(client):
 def test_metricas_nao_usam_texto_como_rotulo(client):
     client.post("/triagem", json={"texto": "segredo-super-unico em compressor"})
     assert "segredo-super-unico" not in client.get("/metrics").text
+
+
+def _textos(rul, n, seed):
+    rng = np.random.default_rng(seed)
+    return [gerar_os(1, 1, float(rul), rng, p_troca=0.0)["texto"] for _ in range(n)]
+
+
+def test_drift_de_texto_usa_baseline_de_producao_nao_o_treino(triagem):
+    # população "natural" desbalanceada (muita OS baixa): não deve alarmar contra ela mesma
+    svc = ServicoTriagem(triagem.modelo, n_base=60)
+    rng = np.random.default_rng(3)
+    natural = [gerar_os(1, 1, float(rng.choice([100, 100, 100, 60, 30, 5])), rng)["texto"]
+               for _ in range(400)]
+    for t in natural[:200]:
+        svc.triar(t)
+    assert svc.drift_texto()["baseline_pronta"] is True
+    assert svc.drift_texto()["psi_classes"] < 0.2
+    for t in _textos(5, 250, seed=4):  # de repente só OS críticas: a distribuição mudou
+        svc.triar(t)
+    assert svc.drift_texto()["psi_classes"] > 0.2
+
+
+def test_drift_de_texto_zero_antes_da_baseline(triagem):
+    svc = ServicoTriagem(triagem.modelo, n_base=100)
+    for t in _textos(5, 20, seed=0):
+        svc.triar(t)
+    assert svc.drift_texto() == {"oov_taxa": pytest.approx(svc.drift_texto()["oov_taxa"]),
+                                 "psi_classes": 0.0, "baseline_pronta": False}

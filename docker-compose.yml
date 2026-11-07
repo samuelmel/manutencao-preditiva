@@ -1,0 +1,43 @@
+# Sobe o sistema inteiro: api + prometheus + grafana.  Antes: make data, treino e `python -m mp.exportar_servico`.
+# Portas presas em 127.0.0.1 (nada exposto na rede). Senha do Grafana: GRAFANA_ADMIN_PASSWORD (padrão local: admin).
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    volumes:
+      - ./artifacts/serving:/app/artifacts/serving:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.size=200MB
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

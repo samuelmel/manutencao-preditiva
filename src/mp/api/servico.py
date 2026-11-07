@@ -98,11 +98,17 @@ class ServicoRul:
 
 
 class ServicoTriagem:
-    def __init__(self, modelo, ref_classes: dict[str, float]):
+    def __init__(self, modelo, ref_classes: dict[str, float] | None = None, n_base: int = 100):
+        """`ref_classes` (proporção no treino) é só informativa: o treino é balanceado por
+        construção, então o drift de classes usa uma linha de base de produção (as `n_base`
+        primeiras OS triadas), não o treino."""
         self.modelo = modelo
+        self.n_base = n_base
+        self.baseline: dict[str, float] | None = None
+        self.primeiros: list[str] = []
+        self.total = 0
         self.classes = list(modelo.classes_)
         self.vocab = {t for t in modelo.named_steps["tfidf"].vocabulary_ if " " not in t}
-        self.ref_classes = ref_classes
         self.recentes: deque[str] = deque(maxlen=200)
         self.oov: deque[float] = deque(maxlen=200)
 
@@ -123,15 +129,25 @@ class ServicoTriagem:
         probs = {c: float(p) for c, p in zip(self.classes, proba, strict=True)}
         grav = max(probs, key=probs.get)
         self.recentes.append(grav)
+        self.total += 1
+        if self.baseline is None:
+            self.primeiros.append(grav)
+            if len(self.primeiros) >= self.n_base:
+                self.baseline = self._dist(self.primeiros)
         return {**base, "gravidade": grav, "motivo": None, "probabilidades": probs,
                 "p_grave": probs.get("alta", 0.0) + probs.get("crítica", 0.0)}
 
+    @staticmethod
+    def _dist(rotulos) -> dict[str, float]:
+        cont = Counter(rotulos)
+        return {g: cont.get(g, 0) / len(rotulos) for g in GRAVIDADES}
+
     def drift_texto(self) -> dict:
-        n = len(self.recentes)
-        cont = Counter(self.recentes)
-        atual = {g: cont.get(g, 0) / n for g in GRAVIDADES} if n else {}
+        """PSI das classes: janela recente contra a linha de base de produção (após 1,5x n_base)."""
+        pronto = self.baseline is not None and self.total >= int(self.n_base * 1.5)
+        psi_cls = drift.psi_categorico(self.baseline, self._dist(self.recentes)) if pronto else 0.0
         return {"oov_taxa": float(np.mean(self.oov)) if self.oov else 0.0,
-                "psi_classes": drift.psi_categorico(self.ref_classes, atual) if n >= 50 else 0.0}
+                "psi_classes": psi_cls, "baseline_pronta": self.baseline is not None}
 
 
 class Fila:

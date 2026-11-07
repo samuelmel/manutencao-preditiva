@@ -10,7 +10,7 @@ Plano completo de engenharia: arquitetura medalhão (bronze/silver/gold), API Fa
 | 0: repo, CI, bronze → silver → gold do C-MAPSS | feito (testado com dados sintéticos) |
 | 1: baselines + LSTM (FD001) + ONNX | feito; LSTM não superou o Random Forest (ver Resultados da Fase 1) |
 | 2: OS sintéticas + spaCy + TF-IDF/Word2Vec/LDA | feito (ver Resultados da Fase 2) |
-| 3: DistilBERT, fusão, API, Grafana, drift | pendente |
+| 3: fusão, drift, API, Docker/Prometheus/Grafana | software testado; Docker e Grafana ainda não executados; DistilBERT pendente (ver Fase 3) |
 
 ## Uso
 
@@ -101,3 +101,41 @@ Baseline TF-IDF (1 a 3-gramas) + Regressão Logística, 20% dos motores no teste
 `make install` usa Python 3.12. O `gensim` ainda não tem pacote pronto para Python 3.14, então crie o ambiente com 3.12:
 `uv venv --python 3.12 .venv && uv pip install --python .venv -e ".[dev,train,nlp]"`. O extra `nlp` já inclui o
 modelo `pt_core_news_sm` 3.8.0 (wheel da explosion/spacy-models). Sem ele o código cai para `blank("pt")`.
+
+## Fase 3 (serviço, drift e observabilidade)
+
+Fluxo: `make data` → `make train-rul` → `make text` → `make serving` (gera `artifacts/serving`, 0,9 MB) → `make up`.
+
+- **Fusão** (`mp.fusion`, pesos em `configs/fusion.yaml`): `0,6·(1 − min(RUL,125)/125) + 0,4·P(gravidade ∈ {alta, crítica})`.
+  É regra de negócio, não modelo treinado. Motor sem OS conhecida entra com a parcela da OS igual a 0.
+- **API** (`mp.api`, FastAPI + ONNX Runtime, sem PyTorch): `/rul`, `/triagem`, `/prioridade` (fila ordenada),
+  `/drift`, `/metrics` (Prometheus) e `/health`. Entrada inválida devolve 422. O classificador de gravidade em serviço
+  é o baseline TF-IDF + Regressão Logística (o DistilBERT ainda não foi treinado).
+- **Casos de borda:** motor com menos de 30 ciclos → `low_confidence=true`; RUL negativo → 0; OS vazia, só com código de
+  peça ou em outro idioma (>60% dos tokens fora do vocabulário) → `gravidade=indefinida` e `revisao_humana=true`;
+  condição operacional longe dos centroides de treino → `condicao_desconhecida=true` e contador no Prometheus.
+- **Drift:** PSI por sensor contra uma amostra do treino (gatilho: PSI > 0,2 em **mais de 3** sensores; KS sob demanda em
+  `/drift`), taxa de tokens fora do vocabulário e PSI da distribuição de gravidade das OS. O PSI dos sensores é recalculado
+  a cada 20 previsões: com KS a cada requisição o `/rul` levava 170 ms; agora a previsão custa ~1 ms.
+  O PSI das classes de OS usa uma **linha de base de produção** (as 100 primeiras OS), não o treino: o treino é balanceado
+  por construção e alarmaria sempre contra uma população real. Só passa a valer depois de 150 OS.
+- **Métricas** só com rótulos `unit_id`, `sensor` e `gravidade` (nunca texto de OS).
+- **Grafana versionado** (`grafana/`): fontes Prometheus e Infinity, dashboard gerado por `scripts/gerar_dashboard.py` e três
+  alertas (drift de sensores, RUL < 15, drift de classes de OS) carregados por *provisioning*. O mapa de calor do PSI é um
+  `state-timeline` por sensor. Prometheus com `--storage.tsdb.retention.size=200MB`; portas presas em `127.0.0.1`;
+  senha do Grafana em `GRAFANA_ADMIN_PASSWORD` (padrão local `admin`).
+- **Simulador:** `make simular` envia os 100 motores de teste e uma OS coerente com o RUL real de cada um;
+  `python -m mp.simular --drift` desloca 6 sensores e dispara o alerta.
+
+### Verificado nesta etapa
+- 81 testes passam (fusão, PSI/KS, contrato da API e 422, casos de borda, métricas, coerência dos JSON/YAML do Grafana com a API).
+- Teste com artefatos reais: RMSE pela API de motores de teste do FD001 < 16 (LSTM offline: ~13), `/rul` p95 < 50 ms e
+  `/triagem` p95 < 300 ms em CPU (RNF03 e RNF04).
+- Tráfego normal: 0 sensores em drift e PSI de texto 0. Com `--drift`: 6 sensores em drift e `alerta_drift=true` na API.
+
+### Ainda não verificado
+- `docker compose up`, o build da imagem (meta < 1 GB), o carregamento dos alertas e a renderização dos painéis no Grafana.
+  Os arquivos passam em testes de coerência, mas ninguém abriu o Grafana.
+- Gatilho de queda de 10 pontos no F1-macro numa amostra rotulada: a API não recebe rótulos; hoje só existe o proxy de
+  PSI das classes. Teste de paridade ONNX × Keras do classificador depende do DistilBERT.
+- DistilBERT multilíngue (fine-tuning, INT8, recall da crítica ≥ 0,85) ainda não foi feito.
