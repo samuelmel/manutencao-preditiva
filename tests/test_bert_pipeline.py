@@ -13,6 +13,7 @@ pytest.importorskip("onnxscript")
 pytest.importorskip("onnxruntime")
 
 import onnxruntime as ort
+import torch
 from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, processors, trainers
 from transformers import (
     DistilBertConfig,
@@ -48,6 +49,7 @@ def _dados(n, seed=0):
 
 
 def _modelo_minusculo(textos):
+    torch.manual_seed(0)  # os pesos iniciais não podem depender do que outros testes sortearam
     tok = _tokenizer(textos)
     cfg = DistilBertConfig(vocab_size=tok.vocab_size, dim=32, hidden_dim=64, n_layers=2, n_heads=2,
                            max_position_embeddings=64, num_labels=4,
@@ -60,10 +62,10 @@ def test_laco_de_treino_consegue_memorizar_um_lote_pequeno(monkeypatch):
     textos, y = _dados(96, seed=1)
     modelo0, tok = _modelo_minusculo(textos)
     monkeypatch.setattr(bert, "carregar_modelo", lambda *a, **k: (modelo0, tok))
-    _, _, hist = bert.treinar(textos, y, textos, y, seed=0, epocas=40, batch=32, lr=3e-3,
+    _, _, hist = bert.treinar(textos, y, textos, y, seed=0, epocas=40, batch=32, lr=1e-2,
                               max_len=MAX_LEN, log=lambda *_: None)
-    assert hist[-1]["perda_treino"] < 0.5 * hist[0]["perda_treino"]
-    assert max(h["f1_macro_val"] for h in hist) > 0.7  # acaso = 0,25
+    assert hist[-1]["perda_treino"] < 0.3 * hist[0]["perda_treino"]
+    assert max(h["f1_macro_val"] for h in hist) > 0.9  # acaso = 0,25; medido: 1,00 em 3 inicializações
 
 
 @pytest.fixture(scope="module")
