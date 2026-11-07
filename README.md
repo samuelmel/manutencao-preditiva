@@ -104,7 +104,10 @@ modelo `pt_core_news_sm` 3.8.0 (wheel da explosion/spacy-models). Sem ele o cód
 
 ## Fase 3 (serviço, drift e observabilidade)
 
-Fluxo: `make data` → `make train-rul` → `make text` → `make serving` (gera `artifacts/serving`, 0,9 MB) → `make up`.
+Fluxo: `make data` → `make train-rul` → `make text` → `make serving` (gera `artifacts/serving`) → `make up`.
+`make reproduce` encadeia `data`, `train-rul`, `text` e `serving` (RNF06: refaz tudo a partir do bronze, com seeds fixas); o DistilBERT
+é treinado à parte, no Colab. Requer `make` (no Windows: `winget install GnuWin32.Make` ou rodar os comandos `uv run ...` do Makefile à mão).
+Com Podman: `make up COMPOSE="podman compose"`.
 
 - **Fusão** (`mp.fusion`, pesos em `configs/fusion.yaml`): `0,6·(1 − min(RUL,125)/125) + 0,4·P(gravidade ∈ {alta, crítica})`.
   É regra de negócio, não modelo treinado. Motor sem OS conhecida entra com a parcela da OS igual a 0.
